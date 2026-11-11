@@ -6,8 +6,9 @@ test('collisions respect walls, floor and placed blocks',()=>{const b=emptyBoard
 test('clearing four rows leaves a clean independent board',()=>{const b=emptyBoard();for(let y=16;y<20;y++)b[y].fill('I');const r=clearRows(b);assert.equal(r.cleared,4);assert.equal(r.board.length,20);assert.ok(r.board.every(row=>row.every(v=>v===null)));r.board[0][0]='T';assert.equal(r.board[1][0],null)});
 test('saved boards reject malformed rows and unknown pieces',()=>{assert.ok(validBoard(emptyBoard()));assert.equal(validBoard([]),false);const b=emptyBoard();b[0][0]='invalid';assert.equal(validBoard(b),false)});
 
-import {rotateMatrix,trimMatrix,stampShape,samePlacement,rotatedPiece,isTSpin} from './game.js';
+import {rotateMatrix,trimMatrix,stampShape,samePlacement,rotatedPiece,isTSpin,classifyTSpin,bagQueue} from './game.js';
 import {makeLesson} from './lessons.js';
+import {catalog} from './lesson-data.js';
 import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js';
 test('180-degree rotation flips T and reverses after a second 180',()=>{
   const flipped=rotateMatrix(shapes.T,2);
@@ -46,16 +47,44 @@ test('all design courses start empty and every hard-drop stage is reachable',()=
     if(mode!=='t-design')assert.ok(board.every(r=>r.every(v=>v===null)));
   }
 });
-test('T-spin insertion generates six distinct solvable boards and requires a real spin',()=>{
-  const variants=new Set();
-  for(let round=0;round<6;round++){
-    const lesson=makeLesson('t-insert',round),step=lesson.steps[0];
-    assert.equal(lesson.steps.length,1);variants.add(JSON.stringify(lesson.board));
-    const p=solveSpin(lesson.board,step.target);assert.ok(p,`spin round ${round}`);assert.ok(isTSpin(lesson.board,p));
-    assert.equal(clearRows(stampShape(lesson.board,p)).cleared,2);
-    assert.equal(isTSpin(lesson.board,{...p,lastRotation:false}),false);
+test('all 48 spin terrains remain solvable after mirror/height/garbage variations',()=>{
+  for(const kind of ['single','double','triple']){
+    const variants=new Set();
+    for(let round=0;round<64;round++){
+      const lesson=makeLesson('t-insert',round,{kind,seed:723}),step=lesson.steps[0];variants.add(JSON.stringify(lesson.board));
+      const p=solveSpin(lesson.board,step.target);assert.ok(p,`${kind} ${round} must be reachable`);
+      const cleared=clearRows(stampShape(lesson.board,p)).cleared;
+      assert.equal(cleared,step.clear);assert.equal(classifyTSpin(lesson.board,p,cleared),kind);
+      assert.equal(isTSpin(lesson.board,{...p,lastRotation:false}),false);
+    }
+    assert.ok(variants.size>=60,`${kind} should not loop a small preset list`);
   }
-  assert.equal(variants.size,6);
+});
+test('every design catalog uses legal 7-bags and each finishing goal actually works',()=>{
+  for(const [kind,entries] of Object.entries(catalog.designs))for(const entry of entries){
+    const sequence=[...entry.plan.map(p=>p.type),'T'],queue=bagQueue(sequence,()=>.5);
+    for(let i=0;i<queue.length;i+=7)assert.equal(new Set(queue.slice(i,i+7)).size,7);
+    let board=emptyBoard();
+    for(const p of entry.plan){const target={...p,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns))};let falling={...target,y:0};while(!collides(board,{...falling,y:falling.y+1}))falling.y++;assert.equal(falling.y,target.y);board=stampShape(board,target);assert.ok(board);assert.equal(clearRows(board).cleared,0);}
+    const target={...entry.target,m:trimMatrix(rotateMatrix(shapes.T,entry.target.turns))},solution=solveSpin(board,target);
+    assert.ok(solution);const lines=clearRows(stampShape(board,solution)).cleared;assert.equal(classifyTSpin(board,solution,lines),kind);
+  }
+  for(const mode of ['perfect','stack63'])for(const entry of catalog[mode]){
+    let board=emptyBoard();
+    for(let i=0;i<entry.plan.length;i++){
+      const p=entry.plan[i],target={...p,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns))};let falling={...target,y:0};
+      while(!collides(board,{...falling,y:falling.y+1}))falling.y++;assert.equal(falling.y,target.y);
+      const result=clearRows(stampShape(board,target));board=result.board;assert.equal(result.cleared,i===entry.plan.length-1?4:0);
+    }
+    assert.ok(board.every(row=>row.every(v=>v===null)));
+  }
+  for(const mode of ['perfect','stack63','t-design'])for(const kind of ['single','double','triple'])for(let round=0;round<12;round++){
+    const lesson=makeLesson(mode,round,{kind,seed:192});const sequence=lesson.steps.map(s=>s.target.type);
+    assert.deepEqual(lesson.queue.slice(0,sequence.length),sequence);
+    for(let i=0;i<lesson.queue.length;i+=7)assert.deepEqual([...lesson.queue.slice(i,i+7)].sort(),Object.keys(shapes).sort());
+    for(let i=2;i<lesson.queue.length;i++)assert.ok(!(lesson.queue[i]===lesson.queue[i-1]&&lesson.queue[i]===lesson.queue[i-2]));
+  }
+  assert.throws(()=>bagQueue(['I','I']),/7-bag/);
 });
 function solveSpin(board,target){
   const queue=[{type:'T',m:shapes.T,x:3,y:0,rot:0,lastRotation:false}],seen=new Set();
