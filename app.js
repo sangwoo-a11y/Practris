@@ -1,32 +1,221 @@
-import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard} from './game.js';
+import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape} from './game.js';
+import {defaults,normalizeHandling,HorizontalRepeat,fallInterval} from './handling.js';
+import {isLesson,makeLesson} from './lessons.js';
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 // Decorative mosaics use the same palette as the playable board.
 function artGrid(el,w,h,type){const cells=Array(w*h).fill('');if(type==='hero'){const rows=['..........','..........','....TTT...','.....T....','..........','..........','..........','..........','LL....SS..','L...TSSOO.','L..TTTJOO.','ZZ..T.JJJ.','.ZZIIII...','SS.LLL.ZZ.','JSSOOLZZT.','JJJOOLTTT.'];rows.forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}else{const patterns={free:['........','........','...T....','..TTT...','........','SS..L...','.SS.L...','IIII.LL.'],skill:['........','...T....','..TTT...','........','JJ...ZZ.','.J...Z..','JJJ.JJJ.','IIIIIIII'],build:['........','...OO...','...OO...','........','L..T....','L.TTTSS.','LL..SS..','IIII....']};patterns[type].forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}el.style.setProperty('--cols',w);el.innerHTML=cells.map(t=>`<i${t?` style="--block:${colors[t]}" class="filled"`:''}></i>`).join('')}
 artGrid($('#hero-grid'),10,16,'hero');$$('[data-art]').forEach(el=>artGrid(el,8,8,el.dataset.art));
-let mode='free',board=emptyBoard(),piece,queue=[],hold=null,canHold=true,running=false,paused=false,over=false,lines=0,pieces=0,seconds=0,paintColor='T',drag=false,noticeTimer;
+let mode='free',board=emptyBoard(),piece,queue=[],hold=null,canHold=true;
+let running=false,paused=false,over=false,lines=0,pieces=0,seconds=0,noticeTimer;
+let lesson=null,lessonStep=0,round=0,completed=0,showHint=true;
+let paintColor='T',editorMatrix=trimMatrix(shapes.T),pointer=null;
+let groups=emptyBoard().map(r=>r.map(()=>0)),groupId=1,history=[];
+let handling={...defaults},softDrop=false,fallElapsed=0,groundElapsed=0,sessionElapsed=0;
+const horizontal=new HorizontalRepeat();
 const dialog=$('#practice'),canvas=$('#board'),ctx=canvas.getContext('2d');
-function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#toast').classList.remove('show'),2700)}
-function mini(type){return `<svg viewBox="0 0 80 48" aria-label="${type} 미노">${shapes[type].flatMap((r,y)=>r.map((v,x)=>v?`<rect x="${x*17+5}" y="${y*17+3}" width="15" height="15"  fill="${colors[type]}"/>`:'')).join('')}</svg>`}
-function side(){ $('#hold').innerHTML=hold?mini(hold):'—';$('#next').innerHTML=queue.slice(0,4).map(t=>mini(t)).join('');$('#lines').textContent=lines;$('#pieces').textContent=pieces;$('#time').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`}
-function refill(){while(queue.length<7)queue.push(...shuffledBag())}
-function spawn(t){refill();const type=t||queue.shift();piece={type,m:shapes[type].map(r=>[...r]),x:3,y:0};refill();if(collides(board,piece)){running=false;over=true;overlay('GAME OVER','다시 시작')}side()}
-function overlay(title,button){$('#board-overlay').hidden=false;$('#overlay-title').textContent=title;$('#start').textContent=button}
-function reset(){board=emptyBoard();queue=[];hold=null;canHold=true;running=false;paused=false;over=false;lines=0;pieces=0;seconds=0;if(mode==='four'){for(let y=16;y<20;y++)for(let x=0;x<10;x++)if(x!==4)board[y][x]='J';queue=['I']}if(mode==='perfect'){for(let y=18;y<20;y++)for(let x=0;x<10;x++)if(x<4||x>5)board[y][x]='S';queue=['O']}if(mode==='tspin'){for(let y=18;y<20;y++)for(let x=0;x<10;x++)if(!(y===19?x===4:x>=3&&x<=5))board[y][x]='T';board[17][3]='T';queue=['T']}spawn();overlay('READY','시작 ▶');$('#board-overlay').hidden=mode==='editor';draw()}
-function configure(m){mode=m;const editor=m==='editor',skill=['tspin','four','perfect'].includes(m);$('#practice-title').textContent=editor?'빌드 에디터':skill?'스킬 연습':'자유 연습';$('#board-label').textContent=editor?'BUILD EDITOR':skill?'SKILL TRAINING':'FREE PLAY';$$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'tspin':m)));$('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;$('#pause').hidden=editor;$('.touch-controls').hidden=editor;reset()}
-function open(m){configure(m);if(!dialog.open){dialog.showModal();document.body.style.overflow='hidden'}(m==='editor'?$('#palette button'):$('#start')).focus()}
-function close(){running=false;dialog.close();document.body.style.overflow=''}
-$$('[data-open]').forEach(b=>b.onclick=()=>open(b.dataset.open));$$('[data-switch]').forEach(b=>b.onclick=()=>configure(b.dataset.switch));$('.close-button').onclick=close;$('#back-home').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});$('#lesson').onchange=e=>configure(e.target.value);
-function start(){if(over)reset();running=true;paused=false;$('#board-overlay').hidden=true;draw()}
-function pause(){if(mode==='editor'||!running||over)return;paused=!paused;if(paused)overlay('PAUSED','계속 ▶');else start()}
-function move(dx,dy){const p={...piece,x:piece.x+dx,y:piece.y+dy};if(collides(board,p))return false;piece=p;draw();return true}
-function rotate(dir){const n=piece.m.length,m=piece.m.map((r,y)=>r.map((_,x)=>dir>0?piece.m[n-1-x][y]:piece.m[x][n-1-y]));for(const offset of [0,-1,1,-2,2]){const p={...piece,m,x:piece.x+offset};if(!collides(board,p)){piece=p;draw();return}}}
-function lock(){piece.m.forEach((r,y)=>r.forEach((v,x)=>{if(v&&piece.y+y>=0)board[piece.y+y][piece.x+x]=piece.type}));const result=clearRows(board);board=result.board;lines+=result.cleared;pieces++;canHold=true;if(result.cleared)toast(board.every(r=>r.every(t=>!t))?'PERFECT CLEAR':`${result.cleared}줄 클리어!`);spawn();draw()}
-function block(x,y,type,alpha=1){ctx.globalAlpha=alpha;ctx.fillStyle=colors[type];ctx.fillRect(x*30+2,y*30+2,26,26);ctx.fillStyle='#ffffff30';ctx.fillRect(x*30+3,y*30+2,24,2);ctx.globalAlpha=1}
-function draw(){ctx.fillStyle='#0b0e14';ctx.fillRect(0,0,300,600);ctx.strokeStyle='#ffffff09';for(let x=0;x<10;x++)for(let y=0;y<20;y++)ctx.strokeRect(x*30,y*30,30,30);board.forEach((r,y)=>r.forEach((t,x)=>{if(t)block(x,y,t)}));if(piece&&mode!=='editor'&&!over){let ghost={...piece};while(!collides(board,{...ghost,y:ghost.y+1}))ghost.y++;ghost.m.forEach((r,y)=>r.forEach((v,x)=>{if(v)block(ghost.x+x,ghost.y+y,piece.type,.15)}));piece.m.forEach((r,y)=>r.forEach((v,x)=>{if(v)block(piece.x+x,piece.y+y,piece.type)}))}}
-function key(k){if(k==='r'){reset();return}if(k==='Enter'){if(mode!=='editor')start();return}if(k==='Escape'){pause();return}if(!running||paused||over||mode==='editor')return;if(k==='ArrowLeft')move(-1,0);if(k==='ArrowRight')move(1,0);if(k==='ArrowDown'&&!move(0,1))lock();if(k==='ArrowUp'||k==='x')rotate(1);if(k==='z')rotate(-1);if(k===' '){while(move(0,1)){}lock()}if(k==='c'&&canHold){const prior=hold;hold=piece.type;spawn(prior);canHold=false;draw()}}
-document.addEventListener('keydown',e=>{if(!dialog.open||e.target.matches('select,input'))return;if(['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','Escape'].includes(e.key))e.preventDefault();if(e.target.tagName==='BUTTON'&&e.key==='Enter')return;key(e.key.length===1?e.key.toLowerCase():e.key)});$$('[data-key]').forEach(b=>b.onclick=()=>key(b.dataset.key));$('#start').onclick=start;$('#pause').onclick=pause;$('#reset').onclick=reset;
-$('#palette').innerHTML=Object.keys(shapes).map(t=>`<button aria-label="${t} 블록" data-color="${t}" style="background:${colors[t]}" class="${t==='T'?'selected':''}">${t}</button>`).join('')+'<button data-color="erase" aria-label="지우개">⌫</button>';$$('[data-color]').forEach(b=>b.onclick=()=>{paintColor=b.dataset.color;$$('[data-color]').forEach(el=>el.classList.toggle('selected',el===b))});
-function paint(e){if(mode!=='editor')return;const r=canvas.getBoundingClientRect(),x=Math.floor((e.clientX-r.left)/r.width*10),y=Math.floor((e.clientY-r.top)/r.height*20);if(x>=0&&x<10&&y>=0&&y<20){board[y][x]=(e.buttons===2||paintColor==='erase')?null:paintColor;draw()}}
-canvas.onpointerdown=e=>{drag=true;canvas.setPointerCapture(e.pointerId);paint(e)};canvas.onpointermove=e=>{if(drag)paint(e)};canvas.onpointerup=canvas.onpointercancel=()=>drag=false;canvas.oncontextmenu=e=>e.preventDefault();
-$('#save').onclick=()=>{try{localStorage.setItem('practris-build',JSON.stringify(board));toast('저장 완료')}catch{toast('브라우저 저장 공간을 사용할 수 없어요.')}};$('#load').onclick=()=>{try{const data=JSON.parse(localStorage.getItem('practris-build'));if(!validBoard(data))return toast('저장된 빌드 없음');board=data;draw();toast('불러오기 완료')}catch{toast('빌드를 불러올 수 없어요.')}};$('#try').onclick=()=>{const saved=board.map(r=>[...r]);configure('free');board=saved;spawn();if(!over)start();draw()};
-setInterval(()=>{if(dialog.open&&running&&!paused&&!over){seconds++;side()}},1000);setInterval(()=>{if(dialog.open&&running&&!paused&&!over&&!move(0,1))lock()},900);
+try{handling=normalizeHandling(JSON.parse(localStorage.getItem('practris-handling'))||defaults);}catch{}
+function releaseInputs(){horizontal.clear();softDrop=false;fallElapsed=0;}
+function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#toast').classList.remove('show'),2200);}
+function mini(type,matrix=shapes[type]){
+  const m=trimMatrix(matrix),w=m[0].length*17,h=m.length*17;
+  return `<svg viewBox="0 0 ${w} ${h}" aria-label="${type} 미노">${m.flatMap((r,y)=>r.map((v,x)=>v?`<rect x="${x*17+1}" y="${y*17+1}" width="15" height="15" fill="${colors[type]}"/>`:'')).join('')}</svg>`;
+}
+function side(){
+  $('#hold').innerHTML=hold?mini(hold):'—';$('#next').innerHTML=queue.slice(0,4).map(t=>mini(t)).join('');
+  $('#lines').textContent=lines;$('#pieces').textContent=pieces;
+  $('#time').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
+}
+function refill(){if(!isLesson(mode))while(queue.length<7)queue.push(...shuffledBag());}
+function spawn(t){
+  refill();const type=t||queue.shift();if(!type)return;
+  piece={type,m:shapes[type].map(r=>[...r]),x:3,y:0};refill();fallElapsed=0;groundElapsed=0;
+  horizontal.cut(performance.now(),handling);
+  if(collides(board,piece)){running=false;over=true;releaseInputs();overlay('GAME OVER','다시 시작');}
+  side();
+}
+function overlay(title,button){$('#board-overlay').hidden=false;$('#overlay-title').textContent=title;$('#start').textContent=button;}
+function updateGuide(message=''){
+  if(!lesson)return;
+  $('#lesson-title').textContent=lesson.title;$('#lesson-principle').textContent=lesson.principle;
+  $('#completed').textContent=completed;
+  $('#lesson-steps').innerHTML=lesson.steps.map((step,i)=>`<li class="${i===lessonStep?'current':i<lessonStep?'done':''}" ${i===lessonStep?'aria-current="step"':''}>${step.text}</li>`).join('');
+  $('#lesson-feedback').textContent=message||`${lessonStep+1} / ${lesson.steps.length} 단계`;
+}
+function loadLesson(){
+  lesson=makeLesson(mode,round);lessonStep=0;board=lesson.board;queue=lesson.steps.map(s=>s.target.type);
+  hold=null;canHold=true;over=false;spawn();updateGuide();draw();
+}
+function reset(){
+  releaseInputs();running=false;paused=false;over=false;lines=0;pieces=0;seconds=0;sessionElapsed=0;round=0;completed=0;
+  board=emptyBoard();queue=[];hold=null;canHold=true;history=[];groups=emptyBoard().map(r=>r.map(()=>0));groupId=1;pointer=null;lesson=null;
+  if(isLesson(mode))loadLesson();else spawn();
+  overlay('READY','시작 ▶');$('#board-overlay').hidden=mode==='editor';draw();
+}
+function configure(m){
+  mode=m;const editor=m==='editor',skill=isLesson(m);
+  $('#practice-title').textContent=editor?'빌드 에디터':skill?'스킬 연습':'자유 연습';
+  $('#board-label').textContent=editor?'BUILD EDITOR':skill?'GUIDED PRACTICE':'FREE PLAY';
+  $$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'tspin':m)));
+  $('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;
+  $('#lesson-guide').hidden=!skill;$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;
+  $('#pause').hidden=editor;$('.touch-controls').hidden=editor;
+  reset();
+}
+function open(m){configure(m);if(!dialog.open){dialog.showModal();document.body.style.overflow='hidden';}(m==='editor'?$('#palette button'):$('#start')).focus();}
+function close(){running=false;releaseInputs();dialog.close();document.body.style.overflow='';}
+$$('[data-open]').forEach(b=>b.onclick=()=>open(b.dataset.open));
+$$('[data-switch]').forEach(b=>b.onclick=()=>configure(b.dataset.switch));
+$('.close-button').onclick=close;$('#back-home').onclick=close;
+dialog.addEventListener('cancel',e=>{e.preventDefault();close();});$('#lesson').onchange=e=>configure(e.target.value);
+function start(){if(over)reset();running=true;paused=false;groundElapsed=0;$('#board-overlay').hidden=true;draw();}
+function pause(){if(mode==='editor'||!running||over)return;paused=!paused;releaseInputs();if(paused)overlay('PAUSED','계속 ▶');else start();}
+function move(dx,dy){const p={...piece,x:piece.x+dx,y:piece.y+dy};if(collides(board,p))return false;piece=p;groundElapsed=0;draw();return true;}
+function rotate(turns){
+  if(mode==='editor'){
+    if(paintColor==='erase')return;editorMatrix=trimMatrix(rotateMatrix(editorMatrix,turns));editorPreview();draw();return;
+  }
+  const m=rotateMatrix(piece.m,turns);
+  for(const offset of [0,-1,1,-2,2]){const p={...piece,m,x:piece.x+offset};if(!collides(board,p)){piece=p;groundElapsed=0;horizontal.cut(performance.now(),handling);draw();return;}}
+}
+function retryStep(message){
+  releaseInputs();piece={type:lesson.steps[lessonStep].target.type,m:shapes[lesson.steps[lessonStep].target.type].map(r=>[...r]),x:3,y:0};
+  fallElapsed=0;groundElapsed=0;updateGuide(message);draw();
+}
+function lock(){
+  if(isLesson(mode)&&!samePlacement(piece,lesson.steps[lessonStep].target)){
+    retryStep('배치가 달라요. 목표 윤곽에 맞춰 다시 놓아보세요.');return;
+  }
+  const placed=stampShape(board,piece);if(!placed){running=false;over=true;releaseInputs();overlay('GAME OVER','다시 시작');return;}
+  const result=clearRows(placed);board=result.board;lines+=result.cleared;pieces++;canHold=true;
+  if(isLesson(mode)){
+    lessonStep++;
+    if(lessonStep===lesson.steps.length){completed++;round++;toast(`완료 ${completed} · 다음 설계`);loadLesson();}
+    else{spawn();updateGuide('좋아요. 다음 배치를 이어가세요.');}
+  }else{if(result.cleared)toast(board.every(r=>r.every(t=>!t))?'PERFECT CLEAR':`${result.cleared}줄 클리어`);spawn();}
+  side();draw();
+}
+function block(x,y,type,alpha=1){ctx.globalAlpha=alpha;ctx.fillStyle=colors[type];ctx.fillRect(x*30+2,y*30+2,26,26);ctx.fillStyle='#ffffff30';ctx.fillRect(x*30+3,y*30+2,24,2);ctx.globalAlpha=1;}
+function outline(p,color){ctx.strokeStyle=color;ctx.lineWidth=2;for(const [x,y] of occupiedCells(p))ctx.strokeRect(x*30+3,y*30+3,24,24);}
+function draw(){
+  ctx.fillStyle='#0b0e14';ctx.fillRect(0,0,300,600);ctx.strokeStyle='#ffffff09';ctx.lineWidth=1;
+  for(let x=0;x<10;x++)for(let y=0;y<20;y++)ctx.strokeRect(x*30,y*30,30,30);
+  board.forEach((r,y)=>r.forEach((t,x)=>{if(t)block(x,y,t);}));
+  if(mode==='editor'){
+    if(pointer&&paintColor!=='erase'){
+      const p={type:paintColor,m:editorMatrix,...pointer},valid=!collides(board,p);
+      for(const [x,y] of occupiedCells(p))if(x>=0&&x<10&&y>=0&&y<20)block(x,y,paintColor,.45);
+      outline(p,valid?'#d5ff70':'#ff718d');
+    }
+    return;
+  }
+  if(lesson&&showHint)outline(lesson.steps[lessonStep].target,'#d5ff70');
+  if(piece&&!over){let ghost={...piece};while(!collides(board,{...ghost,y:ghost.y+1}))ghost.y++;
+    for(const [x,y] of occupiedCells(ghost))block(x,y,piece.type,.15);
+    for(const [x,y] of occupiedCells(piece))block(x,y,piece.type);
+  }
+}
+function key(k){
+  if(k==='Escape'){pause();return;}
+  if(k==='r'){reset();return;}
+  if(mode==='editor'){if(['ArrowUp','x','z','a'].includes(k))rotate(k==='a'?2:k==='z'?-1:1);return;}
+  if(k==='Enter'){start();return;}
+  if(!running||paused||over)return;
+  if(k==='ArrowLeft')move(-1,0);if(k==='ArrowRight')move(1,0);
+  if(k==='ArrowDown')move(0,1);
+  if(k==='ArrowUp'||k==='x')rotate(1);if(k==='z')rotate(-1);if(k==='a')rotate(2);
+  if(k===' '){while(move(0,1)){}lock();}
+  if((k==='c'||k==='Shift')&&canHold){
+    if(isLesson(mode)){updateGuide('이 과제는 지정된 미노 순서로 설계합니다.');return;}
+    const prior=hold;hold=piece.type;spawn(prior);canHold=false;draw();
+  }
+}
+function active(){return dialog.open&&running&&!paused&&!over&&mode!=='editor';}
+const blockedKeys=['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','Escape','Shift'];
+document.addEventListener('keydown',e=>{
+  if(!dialog.open||e.target.matches('select,input,textarea')||e.ctrlKey||e.metaKey||e.altKey)return;
+  const k=e.key.length===1?e.key.toLowerCase():e.key;
+  if(blockedKeys.includes(k))e.preventDefault();
+  if(e.repeat)return;
+  if(e.target.tagName==='BUTTON'&&k==='Enter')return;
+  if(active()&&(k==='ArrowLeft'||k==='ArrowRight')){
+    const dir=horizontal.down(k==='ArrowLeft'?-1:1,performance.now(),handling);if(dir)move(dir,0);return;
+  }
+  if(active()&&k==='ArrowDown'){softDrop=true;fallElapsed=0;if(handling.sdf!=='instant')move(0,1);return;}
+  key(k);
+});
+document.addEventListener('keyup',e=>{
+  if(e.key==='ArrowDown'){softDrop=false;fallElapsed=0;}
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    const dir=horizontal.up(e.key==='ArrowLeft'?-1:1,performance.now(),handling);if(dir&&active())move(dir,0);
+  }
+});
+window.addEventListener('blur',()=>{releaseInputs();if(active())pause();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseInputs();if(active())pause();}});
+$$('[data-key]').forEach(b=>b.onclick=()=>key(b.dataset.key));
+$('#start').onclick=start;$('#pause').onclick=pause;$('#reset').onclick=reset;
+$('#hint-toggle').onclick=()=>{showHint=!showHint;$('#hint-toggle').setAttribute('aria-pressed',String(showHint));$('#hint-toggle').textContent=`목표 표시 ${showHint?'ON':'OFF'}`;draw();};
+$('#retry-step').onclick=()=>retryStep('현재 단계를 다시 시작합니다.');
+
+// Persist handling values locally; changing settings releases any held inputs.
+function renderHandling(){for(const k of ['arr','das','dcd','sdf'])$('#'+k).value=handling[k];}
+function saveHandling(){releaseInputs();try{localStorage.setItem('practris-handling',JSON.stringify(handling));$('#settings-status').textContent='저장됨';}catch{$('#settings-status').textContent='현재 세션에 적용됨';}}
+renderHandling();
+for(const k of ['arr','das','dcd','sdf'])$('#'+k).onchange=e=>{handling=normalizeHandling({...handling,[k]:e.target.value});renderHandling();saveHandling();};
+$('#handling-reset').onclick=()=>{handling={...defaults};renderHandling();saveHandling();};
+$('#settings-toggle').onclick=()=>{const expanded=$('#handling-settings').hidden;$('#handling-settings').hidden=!expanded;$('#settings-toggle').setAttribute('aria-expanded',String(expanded));releaseInputs();};
+
+// Editor stamps complete tetrominoes. Each stamp keeps an ID for whole-piece deletion.
+function snapshot(){return {board:board.map(r=>[...r]),groups:groups.map(r=>[...r])};}
+function remember(){history.push(snapshot());if(history.length>100)history.shift();}
+function editorPreview(){$('#editor-preview').innerHTML=paintColor==='erase'?'⌫':mini(paintColor,editorMatrix);}
+$('#palette').innerHTML=Object.keys(shapes).map(t=>`<button aria-label="${t} 미노" data-color="${t}" class="${t==='T'?'selected':''}">${mini(t)}</button>`).join('')+'<button data-color="erase" aria-label="지우개">⌫</button>';
+$$('[data-color]').forEach(b=>b.onclick=()=>{paintColor=b.dataset.color;if(paintColor!=='erase')editorMatrix=trimMatrix(shapes[paintColor]);$$('[data-color]').forEach(el=>el.classList.toggle('selected',el===b));editorPreview();draw();});
+editorPreview();
+$('#editor-left').onclick=()=>rotate(-1);$('#editor-right').onclick=()=>rotate(1);$('#editor-flip').onclick=()=>rotate(2);
+$('#undo').onclick=()=>{if(!history.length)return toast('취소할 배치 없음');const prior=history.pop();board=prior.board;groups=prior.groups;draw();};
+function pointerCell(e){const r=canvas.getBoundingClientRect();return {x:Math.floor((e.clientX-r.left)/r.width*10),y:Math.floor((e.clientY-r.top)/r.height*20)};}
+function eraseAt({x,y}){
+  if(x<0||x>=10||y<0||y>=20||!board[y][x])return;
+  remember();const id=groups[y][x];
+  for(let yy=0;yy<20;yy++)for(let xx=0;xx<10;xx++)if(id?groups[yy][xx]===id:(xx===x&&yy===y)){board[yy][xx]=null;groups[yy][xx]=0;}
+  draw();
+}
+canvas.onpointermove=e=>{if(mode==='editor'){pointer=pointerCell(e);draw();}};
+canvas.onpointerleave=()=>{pointer=null;if(mode==='editor')draw();};
+canvas.onpointerdown=e=>{
+  if(mode!=='editor')return;e.preventDefault();pointer=pointerCell(e);
+  if(e.button===2||paintColor==='erase'){eraseAt(pointer);return;}
+  const p={type:paintColor,m:editorMatrix,...pointer},next=stampShape(board,p);
+  if(!next){toast('겹치거나 보드를 벗어난 배치');draw();return;}
+  remember();board=next;for(const [x,y] of occupiedCells(p))groups[y][x]=groupId;groupId++;draw();
+};
+canvas.oncontextmenu=e=>e.preventDefault();
+$('#save').onclick=()=>{try{localStorage.setItem('practris-build',JSON.stringify({version:2,board,groups}));toast('저장 완료');}catch{toast('저장 공간을 사용할 수 없습니다.');}};
+$('#load').onclick=()=>{
+  try{
+    const data=JSON.parse(localStorage.getItem('practris-build')),saved=Array.isArray(data)?data:data?.board;
+    if(!validBoard(saved))return toast('저장된 빌드 없음');
+    const ids=data?.groups,validIds=Array.isArray(ids)&&ids.length===20&&ids.every((r,y)=>Array.isArray(r)&&r.length===10&&r.every((v,x)=>Number.isSafeInteger(v)&&v>=0&&v<1000000&&(saved[y][x]?v>0:v===0)));
+    remember();board=saved;groups=validIds?ids:emptyBoard().map(r=>r.map(()=>0));groupId=1+Math.max(...groups.flat());pointer=null;draw();toast('불러오기 완료');
+  }catch{toast('빌드를 불러올 수 없습니다.');}
+};
+$('#try').onclick=()=>{const saved=board.map(r=>[...r]);configure('free');board=saved;spawn();if(!over)start();draw();};
+
+let lastFrame=performance.now();
+function frame(now){
+  const dt=Math.min(100,now-lastFrame);lastFrame=now;
+  if(active()){
+    sessionElapsed+=dt;const elapsed=Math.floor(sessionElapsed/1000);if(elapsed!==seconds){seconds=elapsed;side();}
+    const repeat=horizontal.tick(now,handling);for(let i=0;i<repeat.steps;i++)if(!move(repeat.direction,0))break;
+    if(!isLesson(mode)||softDrop){
+      const interval=fallInterval(handling,softDrop);fallElapsed+=dt;
+      if(interval===0){while(move(0,1)){}fallElapsed=0;}
+      else while(fallElapsed>=interval){fallElapsed-=interval;if(!move(0,1)){fallElapsed=0;break;}}
+    }
+    if(collides(board,{...piece,y:piece.y+1})){
+      groundElapsed+=dt;if(groundElapsed>=450)lock();
+    }else groundElapsed=0;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
