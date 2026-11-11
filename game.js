@@ -25,3 +25,29 @@ export function stampShape(board,piece){
   for(const [x,y] of occupiedCells(piece))next[y][x]=piece.type;
   return next;
 }
+
+// SRS wall kicks, converted to screen coordinates (positive Y points down).
+const normalKicks={
+ '0>1':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],'1>0':[[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+ '1>2':[[0,0],[1,0],[1,1],[0,-2],[1,-2]],'2>1':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+ '2>3':[[0,0],[1,0],[1,-1],[0,2],[1,2]],'3>2':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+ '3>0':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],'0>3':[[0,0],[1,0],[1,-1],[0,2],[1,2]],
+};
+const iKicks={
+ '0>1':[[0,0],[-2,0],[1,0],[-2,1],[1,-2]],'1>0':[[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+ '1>2':[[0,0],[-1,0],[2,0],[-1,-2],[2,1]],'2>1':[[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+ '2>3':[[0,0],[2,0],[-1,0],[2,-1],[-1,2]],'3>2':[[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+ '3>0':[[0,0],[1,0],[-2,0],[1,2],[-2,-1]],'0>3':[[0,0],[-1,0],[2,0],[-1,-2],[2,1]],
+};
+export function rotatedPiece(board,piece,turns){
+  const from=piece.rot||0,to=(from+turns+4)%4;
+  const kicks=Math.abs(turns)===2?[[0,0],[-1,0],[1,0],[0,-1],[0,-2],[-1,-1],[1,-1]]:
+    (piece.type==='I'?iKicks:normalKicks)[`${from}>${to}`]||[[0,0]];
+  for(const [dx,dy] of kicks){const p={...piece,m:rotateMatrix(piece.m,turns),x:piece.x+dx,y:piece.y+dy,rot:to,lastRotation:true};if(!collides(board,p))return p;}
+  return null;
+}
+export function isTSpin(board,piece){
+  if(piece.type!=='T'||!piece.lastRotation)return false;
+  const cx=piece.x+1,cy=piece.y+1;
+  return [[-1,-1],[1,-1],[-1,1],[1,1]].filter(([dx,dy])=>{const x=cx+dx,y=cy+dy;return x<0||x>=10||y>=20||(y>=0&&!!board[y][x]);}).length>=3;
+}

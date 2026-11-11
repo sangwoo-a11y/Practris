@@ -1,5 +1,6 @@
 export const defaults={arr:16,das:133,dcd:0,sdf:20};
 export function normalizeHandling(value={}){
+  if(!value||typeof value!=='object')value={};
   const num=(key,max)=>Number.isFinite(Number(value[key]))?Math.max(0,Math.min(max,Number(value[key]))):defaults[key];
   return {arr:num('arr',100),das:num('das',500),dcd:num('dcd',200),sdf:value.sdf==='instant'?'instant':Math.max(1,num('sdf',100))};
 }
@@ -30,3 +31,11 @@ export class HorizontalRepeat{
   }
 }
 export function fallInterval(settings,softDrop){return softDrop?(settings.sdf==='instant'?0:900/settings.sdf):900;}
+
+// Physical key codes keep controls working while Korean IME is selected.
+export function actionKey(event){
+  const fixed={ArrowLeft:'ArrowLeft',ArrowRight:'ArrowRight',ArrowUp:'ArrowUp',ArrowDown:'ArrowDown',Space:' ',Enter:'Enter',Escape:'Escape',ShiftLeft:'Shift',ShiftRight:'Shift'};
+  if(fixed[event.code])return fixed[event.code];
+  if(/^Key[A-Z]$/.test(event.code))return event.code.slice(3).toLowerCase();
+  return event.key?.length===1?event.key.toLowerCase():event.key;
+}
