@@ -24,7 +24,7 @@ test('editor rotates complete shapes and rejects overlaps without modifying boar
   assert.ok(samePlacement(p,{type:'I',m:rotateMatrix(shapes.I),x:7,y:16}));
 });
 test('all design courses start empty and every hard-drop stage is reachable',()=>{
-  for(const mode of ['stack63','perfect','t-design'])for(let round=0;round<6;round++){
+  for(const mode of ['stack63','perfect'])for(let round=0;round<6;round++){
     const lesson=makeLesson(mode,round);let board=lesson.board;
     assert.equal(board.flat().filter(Boolean).length,0);
     for(const step of lesson.steps){
@@ -44,14 +44,14 @@ test('all design courses start empty and every hard-drop stage is reachable',()=
       assert.equal(result.cleared,step.clear||0);
       if(step.perfect)assert.ok(board.every(r=>r.every(v=>v===null)));
     }
-    if(mode!=='t-design')assert.ok(board.every(r=>r.every(v=>v===null)));
+    if(mode!=='tspin')assert.ok(board.every(r=>r.every(v=>v===null)));
   }
 });
 test('all 48 spin terrains remain solvable after mirror/height/garbage variations',()=>{
   for(const kind of ['single','double','triple']){
     const variants=new Set();
     for(let round=0;round<64;round++){
-      const lesson=makeLesson('t-insert',round,{kind,seed:723}),step=lesson.steps[0];variants.add(JSON.stringify(lesson.board));
+      const lesson=makeLesson('tspin',round,{kind,seed:723}),step=lesson.steps[0];variants.add(JSON.stringify(lesson.board));
       const p=solveSpin(lesson.board,step.target);assert.ok(p,`${kind} ${round} must be reachable`);
       const cleared=clearRows(stampShape(lesson.board,p)).cleared;
       assert.equal(cleared,step.clear);assert.equal(classifyTSpin(lesson.board,p,cleared),kind);
@@ -61,14 +61,6 @@ test('all 48 spin terrains remain solvable after mirror/height/garbage variation
   }
 });
 test('every design catalog uses legal 7-bags and each finishing goal actually works',()=>{
-  for(const [kind,entries] of Object.entries(catalog.designs))for(const entry of entries){
-    const sequence=[...entry.plan.map(p=>p.type),'T'],queue=bagQueue(sequence,()=>.5);
-    for(let i=0;i<queue.length;i+=7)assert.equal(new Set(queue.slice(i,i+7)).size,7);
-    let board=emptyBoard();
-    for(const p of entry.plan){const target={...p,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns))};let falling={...target,y:0};while(!collides(board,{...falling,y:falling.y+1}))falling.y++;assert.equal(falling.y,target.y);board=stampShape(board,target);assert.ok(board);assert.equal(clearRows(board).cleared,0);}
-    const target={...entry.target,m:trimMatrix(rotateMatrix(shapes.T,entry.target.turns))},solution=solveSpin(board,target);
-    assert.ok(solution);const lines=clearRows(stampShape(board,solution)).cleared;assert.equal(classifyTSpin(board,solution,lines),kind);
-  }
   for(const mode of ['perfect','stack63'])for(const entry of catalog[mode]){
     let board=emptyBoard();
     for(let i=0;i<entry.plan.length;i++){
@@ -78,7 +70,7 @@ test('every design catalog uses legal 7-bags and each finishing goal actually wo
     }
     assert.ok(board.every(row=>row.every(v=>v===null)));
   }
-  for(const mode of ['perfect','stack63','t-design'])for(const kind of ['single','double','triple'])for(let round=0;round<12;round++){
+  for(const mode of ['perfect','stack63'])for(const kind of ['single','double','triple'])for(let round=0;round<12;round++){
     const lesson=makeLesson(mode,round,{kind,seed:192});const sequence=lesson.steps.map(s=>s.target.type);
     assert.deepEqual(lesson.queue.slice(0,sequence.length),sequence);
     for(let i=0;i<lesson.queue.length;i+=7)assert.deepEqual([...lesson.queue.slice(i,i+7)].sort(),Object.keys(shapes).sort());
@@ -134,4 +126,18 @@ test('6–3 keeps the seventh-column well open and advances to all seven mino ty
   }
   assert.equal(new Set(makeLesson('stack63',1).steps.map(step=>step.target.type)).size,7);
   assert.ok(new Set(makeLesson('perfect',1).steps.map(step=>step.target.type)).size>=3);
+});
+
+import {isLesson} from './lessons.js';
+import {guides,guideHTML,exampleState,boardDiagram} from './guides.js';
+test('only the insertion-based T-spin mode remains',()=>{
+  assert.equal(isLesson('tspin'),true);assert.equal(isLesson('t-design'),false);assert.equal(isLesson('t-insert'),false);
+  assert.throws(()=>makeLesson('t-design'),/Unknown/);
+});
+test('guidebook covers skills and the example shows one optional target at a time',()=>{
+  for(const topic of ['basics','tspin','stack63','perfect','editor']){assert.ok(guides[topic]);assert.match(guideHTML(topic),/guide-title/);}
+  const lesson=makeLesson('perfect',0,{seed:42});
+  const first=exampleState(lesson,0);assert.equal(first.board.flat().filter(Boolean).length,0);assert.equal(first.target.type,lesson.steps[0].target.type);
+  const last=exampleState(lesson,lesson.steps.length);assert.equal(last.target,null);assert.equal(last.board.flat().filter(Boolean).length,0);
+  assert.equal((boardDiagram(first.board,first.target).match(/stroke="#d5ff70"/g)||[]).length,4);
 });

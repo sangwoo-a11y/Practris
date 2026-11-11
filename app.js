@@ -1,12 +1,14 @@
-import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=5';
-import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=5';
-import {isLesson,makeLesson} from './lessons.js?v=5';
+import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=6';
+import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=6';
+import {isLesson,makeLesson} from './lessons.js?v=6';
+import {guideHTML,exampleState,boardDiagram} from './guides.js?v=6';
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 // Decorative mosaics use the same palette as the playable board.
 function artGrid(el,w,h,type){const cells=Array(w*h).fill('');if(type==='hero'){const rows=['..........','..........','....TTT...','.....T....','..........','..........','..........','..........','LL....SS..','L...TSSOO.','L..TTTJOO.','ZZ..T.JJJ.','.ZZIIII...','SS.LLL.ZZ.','JSSOOLZZT.','JJJOOLTTT.'];rows.forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}else{const patterns={free:['........','........','...T....','..TTT...','........','SS..L...','.SS.L...','IIII.LL.'],skill:['........','...T....','..TTT...','........','JJ...ZZ.','.J...Z..','JJJ.JJJ.','IIIIIIII'],build:['........','...OO...','...OO...','........','L..T....','L.TTTSS.','LL..SS..','IIII....']};patterns[type].forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}el.style.setProperty('--cols',w);el.innerHTML=cells.map(t=>`<i${t?` style="--block:${colors[t]}" class="filled"`:''}></i>`).join('')}
 artGrid($('#hero-grid'),10,16,'hero');$$('[data-art]').forEach(el=>artGrid(el,8,8,el.dataset.art));
 let mode='free',board=emptyBoard(),piece,queue=[],hold=null,canHold=true,drawn=0;
-let usedLayouts=new Set();
+let usedLayouts=new Set(),pcHistory=[],pcPlaced=0,pcOnPlan=true;
+let bookResume=false,bookTopic='basics',bookExample=null,exampleIndex=0;
 let running=false,paused=false,over=false,lines=0,pieces=0,seconds=0,noticeTimer;
 let lesson=null,lessonStep=0,round=0,completed=0,showHint=true,sessionSeed=Date.now()>>>0;
 let brushMode='shape',painting=false;
@@ -14,7 +16,7 @@ let paintColor='T',editorMatrix=trimMatrix(shapes.T),pointer=null;
 let groups=emptyBoard().map(r=>r.map(()=>0)),groupId=1,history=[];
 let handling={...defaults},softDrop=false,fallElapsed=0,groundElapsed=0,sessionElapsed=0;
 const horizontal=new HorizontalRepeat();
-const dialog=$('#practice'),canvas=$('#board'),ctx=canvas.getContext('2d');
+const book=$('#guidebook'),dialog=$('#practice'),canvas=$('#board'),ctx=canvas.getContext('2d');
 try{handling=normalizeHandling(JSON.parse(localStorage.getItem('practris-handling'))||defaults);}catch{}
 function releaseInputs(){horizontal.clear();softDrop=false;fallElapsed=0;}
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#toast').classList.remove('show'),2200);}
@@ -23,7 +25,7 @@ function mini(type,matrix=shapes[type]){
   return `<svg viewBox="0 0 ${w} ${h}" aria-label="${type} 미노">${m.flatMap((r,y)=>r.map((v,x)=>v?`<rect x="${x*17+1}" y="${y*17+1}" width="15" height="15" fill="${colors[type]}"/>`:'')).join('')}</svg>`;
 }
 function side(){
-  $('#hold').innerHTML=hold?mini(hold):'—';$('#next').innerHTML=queue.slice(0,7).map(t=>mini(t)).join('');$('#bag-label').textContent=`7-BAG · ${Math.max(1,Math.ceil(drawn/7))}`;
+  $('#hold').innerHTML=hold?mini(hold):'—';$('#next').innerHTML=queue.slice(0,5).map(t=>mini(t)).join('');$('#bag-label').textContent=`7-BAG · ${Math.max(1,Math.ceil(drawn/7))}`;
   $('#lines').textContent=lines;$('#pieces').textContent=pieces;
   $('#time').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
 }
@@ -38,13 +40,14 @@ function spawn(t){
 function overlay(title,button){$('#board-overlay').hidden=false;$('#overlay-title').textContent=title;$('#start').textContent=button;}
 function updateGuide(message=''){
   if(!lesson)return;
-  $('#challenge-name').textContent=lesson.title;$('#progress').textContent=`${lessonStep+1}/${lesson.steps.length} · 완료 ${completed}`;
+  $('#challenge-name').textContent=lesson.title;$('#progress').textContent=mode==='perfect'?`${pcPlaced}개 배치 · 완료 ${completed}`:`${lessonStep+1}/${lesson.steps.length} · 완료 ${completed}`;
+  if(mode==='perfect'){ $('#pc-undo').disabled=pcHistory.length===0;$('#pc-hint').disabled=!pcOnPlan||lessonStep>=lesson.steps.length;$('#pc-hint').setAttribute('aria-pressed',String(showHint));$('#pc-hint').textContent=showHint?'힌트 숨기기':'현재 미노 힌트';$('#pc-mode-label').textContent=pcOnPlan?'자유 풀이':'자유 풀이 · 다른 배치'; }
   if(message&&message!=='좋아요. 다음 배치를 이어가세요.')toast(message);
 }
 
 function loadLesson(){
   for(let attempt=0;attempt<64;attempt++){lesson=makeLesson(mode,round,{kind:$('#spin-kind').value,seed:sessionSeed,attempt});if(!usedLayouts.has(lesson.id))break;}
-  usedLayouts.add(lesson.id);drawn=0;lessonStep=0;board=lesson.board;queue=[...lesson.queue];
+  usedLayouts.add(lesson.id);drawn=0;lessonStep=0;pcHistory=[];pcPlaced=0;pcOnPlan=true;showHint=mode!=='perfect';board=lesson.board;queue=[...lesson.queue];
   hold=null;canHold=true;over=false;spawn();updateGuide();draw();
 }
 function reset(){
@@ -54,13 +57,13 @@ function reset(){
   overlay('READY','시작 ▶');$('#board-overlay').hidden=mode==='editor';draw();
 }
 function configure(m){
-  mode=m;sessionSeed=crypto.getRandomValues(new Uint32Array(1))[0];usedLayouts=new Set();showHint=true;const editor=m==='editor',skill=isLesson(m);
+  mode=m;sessionSeed=crypto.getRandomValues(new Uint32Array(1))[0];usedLayouts=new Set();showHint=m!=='perfect';const editor=m==='editor',skill=isLesson(m);
   $('#practice-title').textContent=editor?'빌드 에디터':skill?'스킬 연습':'자유 연습';
   $('#board-label').textContent=editor?'BUILD EDITOR':skill?'GUIDED PRACTICE':'FREE PLAY';
-  $$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'t-design':m)));
+  $$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'tspin':m)));
   $('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;
-  $('#challenge-status').hidden=!skill;$('.spin-picker').hidden=!['t-design','t-insert'].includes(m);$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;
-  $('#next-challenge').hidden=!skill;$('#pause').hidden=editor;$('.touch-controls').hidden=editor;
+  $('#challenge-status').hidden=!skill;$('.spin-picker').hidden=m!=='tspin';$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;
+  $('#pc-tools').hidden=m!=='perfect';$('#next-challenge').hidden=!skill;$('#pause').hidden=editor;$('.touch-controls').hidden=editor;
   reset();if(skill)start();
 }
 function open(m){applyHandling();configure(m);if(!dialog.open){dialog.showModal();document.body.style.overflow='hidden';}canvas.focus({preventScroll:true});}
@@ -84,12 +87,19 @@ function retryStep(message){
   fallElapsed=0;groundElapsed=0;updateGuide(message);draw();
 }
 function lock(){
-  if(isLesson(mode)&&(piece.type!==lesson.steps[lessonStep].target.type||!samePlacement(piece,lesson.steps[lessonStep].target)||(lesson.steps[lessonStep].tspin&&classifyTSpin(board,piece,lesson.steps[lessonStep].clear)!==lesson.steps[lessonStep].spin))){
+  if(isLesson(mode)&&mode!=='perfect'&&(piece.type!==lesson.steps[lessonStep].target.type||!samePlacement(piece,lesson.steps[lessonStep].target)||(lesson.steps[lessonStep].tspin&&classifyTSpin(board,piece,lesson.steps[lessonStep].clear)!==lesson.steps[lessonStep].spin))){
     retryStep(lesson.steps[lessonStep].tspin?'회전으로 진입하세요. ↓ → 회전 → ↓ → 회전 → SPACE.':'배치가 달라요. 밝은 목표 모양에 맞춰 다시 놓으세요.');return;
   }
+  const undoState=mode==='perfect'?{board:board.map(r=>[...r]),type:piece.type,queue:[...queue],hold,drawn,lines,pieces,pcPlaced,pcOnPlan,lessonStep}:null;
+  const matchedExample=mode==='perfect'&&pcOnPlan&&lesson.steps[lessonStep]&&piece.type===lesson.steps[lessonStep].target.type&&samePlacement(piece,lesson.steps[lessonStep].target);
   const placed=stampShape(board,piece);if(!placed){running=false;over=true;releaseInputs();overlay('GAME OVER','다시 시작');return;}
   const result=clearRows(placed),spin=classifyTSpin(board,piece,result.cleared);board=result.board;lines+=result.cleared;pieces++;canHold=true;
-  if(isLesson(mode)){
+  if(mode==='perfect'){
+    pcHistory.push(undoState);pcPlaced++;showHint=false;
+    pcOnPlan=Boolean(matchedExample);if(pcOnPlan)lessonStep++;
+    if(result.cleared&&board.every(row=>row.every(v=>v===null))){completed++;round++;toast('PERFECT CLEAR');loadLesson();}
+    else{spawn();updateGuide();}
+  }else if(isLesson(mode)){
     lessonStep++;
     if(lessonStep===lesson.steps.length){completed++;round++;toast(lesson.kind?`T-SPIN ${lesson.kind.toUpperCase()}`:`완료 ${completed}`);loadLesson();}
     else{spawn();updateGuide('좋아요. 다음 배치를 이어가세요.');}
@@ -111,7 +121,7 @@ function draw(){
     return;
   }
   if(lesson&&showHint){
-    for(let i=lesson.steps.length-1;i>=lessonStep;i--){
+    for(let i=mode==='perfect'?lessonStep:lesson.steps.length-1;i>=lessonStep;i--){
       const p=lesson.steps[i].target,current=i===lessonStep;
       for(const [x,y] of occupiedCells(p))block(x,y,p.type,current?.28:.08);
       outline(p,current?'#d5ff70':colors[p.type]+'55');
@@ -140,10 +150,10 @@ function key(k){
     const prior=hold;hold=piece.type;spawn(prior||undefined);canHold=isLesson(mode);draw();
   }
 }
-function active(){return dialog.open&&running&&!paused&&!over&&mode!=='editor';}
+function active(){return dialog.open&&!book.open&&running&&!paused&&!over&&mode!=='editor';}
 const blockedKeys=['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','Escape','Shift'];
 document.addEventListener('keydown',e=>{
-  if(!dialog.open||(e.target instanceof Element&&e.target.matches('select,input,textarea'))||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(book.open||!dialog.open||(e.target instanceof Element&&e.target.matches('select,input,textarea'))||e.ctrlKey||e.metaKey||e.altKey)return;
   const k=actionKey(e);
   if(blockedKeys.includes(k))e.preventDefault();
   if(e.repeat)return;
@@ -248,3 +258,39 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+
+// Optional perfect-clear help does not constrain the player's placements.
+$('#pc-hint').onclick=()=>{if(!pcOnPlan)return;showHint=!showHint;updateGuide();draw();canvas.focus({preventScroll:true});};
+$('#pc-undo').onclick=()=>{
+  const prior=pcHistory.pop();if(!prior)return;
+  board=prior.board;queue=prior.queue;hold=prior.hold;drawn=prior.drawn;lines=prior.lines;pieces=prior.pieces;pcPlaced=prior.pcPlaced;pcOnPlan=prior.pcOnPlan;lessonStep=prior.lessonStep;
+  piece={type:prior.type,m:shapes[prior.type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};
+  canHold=true;over=false;running=true;paused=false;showHint=false;groundElapsed=0;releaseInputs();$('#board-overlay').hidden=true;side();updateGuide();draw();canvas.focus({preventScroll:true});
+};
+function renderExample(){
+  if(!bookExample)return;const state=exampleState(bookExample,exampleIndex);
+  $('#example-board').innerHTML=boardDiagram(state.board,state.target);
+  $('#example-step').textContent=`${exampleIndex} / ${bookExample.steps.length}`;
+  $('#example-caption').textContent=state.target?`${exampleIndex+1}번째 · ${state.target.type}를 표시된 공간에 배치`:'보드의 모든 블록을 비웠습니다.';
+  $('#example-prev').disabled=exampleIndex===0;$('#example-next').disabled=exampleIndex===bookExample.steps.length;
+}
+function setBookTopic(topic){
+  bookTopic=topic;$('#guide-content').innerHTML=guideHTML(topic);
+  $$('[data-guide-topic]').forEach(button=>{const selected=button.dataset.guideTopic===topic;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
+  $('#book-example').hidden=topic!=='perfect';
+  if(topic==='perfect'){bookExample=mode==='perfect'&&lesson?lesson:makeLesson('perfect',0,{seed:42});exampleIndex=0;renderExample();}
+}
+function openBook(topic='basics',example=false){
+  if(topic==='current')topic=isLesson(mode)?mode:mode==='editor'?'editor':'basics';
+  bookResume=active();releaseInputs();if(bookResume)paused=true;
+  setBookTopic(topic);book.showModal();book.scrollTop=0;if(!dialog.open)document.body.style.overflow='hidden';
+  if(example)$('#book-example').scrollIntoView({block:'start'});
+}
+function closeBook(){book.close();if(!dialog.open)document.body.style.overflow='';if(bookResume&&dialog.open&&running&&!over){paused=false;canvas.focus({preventScroll:true});}bookResume=false;}
+$$('[data-guide]').forEach(button=>button.onclick=()=>openBook(button.dataset.guide));
+$$('[data-guide-topic]').forEach(button=>button.onclick=()=>setBookTopic(button.dataset.guideTopic));
+$('#book-close').onclick=closeBook;book.addEventListener('cancel',event=>{event.preventDefault();closeBook();});
+$('#example-prev').onclick=()=>{if(exampleIndex>0){exampleIndex--;renderExample();}};
+$('#example-next').onclick=()=>{if(exampleIndex<bookExample.steps.length){exampleIndex++;renderExample();}};
+$('#pc-example').onclick=()=>openBook('perfect',true);

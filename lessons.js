@@ -1,6 +1,6 @@
-import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=5';
-import {catalog} from './lesson-data.js?v=5';
-export const isLesson=mode=>['stack63','perfect','t-design','t-insert'].includes(mode);
+import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=6';
+import {catalog} from './lesson-data.js?v=6';
+export const isLesson=mode=>['stack63','perfect','tspin'].includes(mode);
 export function seededRandom(seed){let state=seed>>>0||1;return()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return(state>>>0)/4294967296;};}
 const piece=p=>({type:p.type,x:p.x,y:p.y,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns||0))});
 const mirrorTypes={J:'L',L:'J',S:'Z',Z:'S',T:'T',I:'I',O:'O'};
@@ -29,6 +29,7 @@ function varyOrder(steps,random){
   return result;
 }
 export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0}={}){
+  if(!isLesson(mode))throw new Error('Unknown practice mode');
   const random=seededRandom((seed^Math.imul(round+1,2654435761)^Math.imul(attempt+1,2246822519))>>>0);
   const spin=kind==='mixed'?['single','double','triple'][round%3]:kind;
   const flipped=random()<.5;
@@ -40,12 +41,6 @@ export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0}={}){
     steps= varyOrder(steps,random);
     steps.at(-1).clear=4;if(mode==='perfect')steps.at(-1).perfect=true;
     title=mode==='stack63'?'6–3 STACKING':'PERFECT CLEAR';
-  }else if(mode==='t-design'){
-    const pool=catalog.designs[spin],index=(Math.floor(round/(kind==='mixed'?3:1))+(seed>>>0)%pool.length)%pool.length;
-    const source=pool[index];
-    steps=[...source.plan.map(p=>({target:piece(p)})),{target:piece(source.target),clear:{single:1,double:2,triple:3}[spin],tspin:true,spin}];
-    if(flipped)steps=steps.map(s=>({...s,target:mirror(s.target)}));
-    steps=varyOrder(steps,random);title=`T-SPIN ${spin.toUpperCase()} · BUILD`;
   }else{
     const pool=catalog.insertions[spin],index=(Math.floor(round/(kind==='mixed'?3:1))+(seed>>>0)%pool.length)%pool.length;
     const source=pool[index];board=source.rows.map(row=>[...row].map(c=>c==='X'?'J':null));
@@ -66,5 +61,5 @@ export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0}={}){
   }
   const queue=bagQueue(steps.map(s=>s.target.type),random);
   const id=JSON.stringify([board.map(row=>row.map(v=>v?'X':'.').join('')),steps.map(s=>s.target)]);
-  return {board,steps,queue,title,kind:mode.startsWith('t-')?spin:null,id};
+  return {board,steps,queue,title,kind:mode==='tspin'?spin:null,id};
 }
