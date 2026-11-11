@@ -1,4 +1,4 @@
-import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=7';
+import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=8';
 export const spawnPiece=type=>({type,m:shapes[type].map(row=>[...row]),x:3,y:0,rot:0,lastRotation:false});
 export const placementKey=p=>occupiedCells(p).map(([x,y])=>y*10+x).sort((a,b)=>a-b).join(',');
 

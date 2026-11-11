@@ -1,8 +1,8 @@
-import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=7';
-import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=7';
-import {isLesson,makeLesson} from './lessons.js?v=7';
-import {guideHTML,exampleState,boardDiagram} from './guides.js?v=7';
-import {buildLibrary,getBuild,buildHTML} from './builds.js?v=7';
+import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=8';
+import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=8';
+import {isLesson,makeLesson} from './lessons.js?v=8';
+import {guideHTML,exampleState,boardDiagram} from './guides.js?v=8';
+import {buildLibrary,getBuild,buildHTML} from './builds.js?v=8';
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 // Decorative mosaics use the same palette as the playable board.
 function artGrid(el,w,h,type){const cells=Array(w*h).fill('');if(type==='hero'){const rows=['..........','..........','....TTT...','.....T....','..........','..........','..........','..........','LL....SS..','L...TSSOO.','L..TTTJOO.','ZZ..T.JJJ.','.ZZIIII...','SS.LLL.ZZ.','JSSOOLZZT.','JJJOOLTTT.'];rows.forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}else{const patterns={free:['........','........','...T....','..TTT...','........','SS..L...','.SS.L...','IIII.LL.'],skill:['........','...T....','..TTT...','........','JJ...ZZ.','.J...Z..','JJJ.JJJ.','IIIIIIII'],build:['........','...OO...','...OO...','........','L..T....','L.TTTSS.','LL..SS..','IIII....']};patterns[type].forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}el.style.setProperty('--cols',w);el.innerHTML=cells.map(t=>`<i${t?` style="--block:${colors[t]}" class="filled"`:''}></i>`).join('')}
@@ -330,7 +330,7 @@ function openAnalysis(){
   analysisResult=null;analysisFilter='all';analysisPage=0;analysisNextIndex=0;const id=++analysisId;
   $('#analysis-status').textContent='현재 보드를 분석 중입니다.';$('#analysis-options').innerHTML='';$('#analysis-detail').innerHTML='';$('#analysis-filters').innerHTML='';$('#analysis-page').textContent='';$('#analysis-prev').disabled=true;$('#analysis-next').disabled=true;
   analysis.showModal();analysis.scrollTop=0;
-  analysisWorker?.terminate();analysisWorker=new Worker(new URL('./placement-worker.js?v=7',import.meta.url),{type:'module'});
+  analysisWorker?.terminate();analysisWorker=new Worker(new URL('./placement-worker.js?v=8',import.meta.url),{type:'module'});
   analysisWorker.onmessage=({data})=>{
     if(data.id!==analysisId||!analysis.open)return;
     if(data.type==='progress')$('#analysis-status').textContent=`현재 보드 분석 중 · ${data.count}개 후보 확인`;

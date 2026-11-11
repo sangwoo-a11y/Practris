@@ -1,5 +1,5 @@
-import {colors,occupiedCells,emptyBoard,stampShape,clearRows,shapes,trimMatrix,rotateMatrix} from './game.js?v=7';
-import {catalog} from './lesson-data.js?v=7';
+import {colors,occupiedCells,emptyBoard,stampShape,clearRows,shapes,trimMatrix,rotateMatrix} from './game.js?v=8';
+import {catalog} from './lesson-data.js?v=8';
 export const guides={
   basics:{title:'기본 규칙',lead:'7-bag · 이동 · 회전 · 홀드',sections:[
     ['보드와 줄 지우기',['보드는 가로 10칸, 세로 20칸입니다. 한 줄을 빈칸 없이 채우면 그 줄이 사라집니다.','미노는 네 칸으로 이루어진 I·O·T·S·Z·J·L의 7종입니다. 위쪽 출현 공간이 막히면 게임 오버입니다.']],
