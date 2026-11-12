@@ -1,4 +1,4 @@
-import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=9';
+import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=10';
 export const spawnPiece=type=>({type,m:shapes[type].map(row=>[...row]),x:3,y:0,rot:0,lastRotation:false});
 export const placementKey=p=>occupiedCells(p).map(([x,y])=>y*10+x).sort((a,b)=>a-b).join(',');
 
@@ -31,7 +31,7 @@ function placedResult(board,p){
 }
 // Counts are distinct legal landing positions for this piece and the immediately following piece.
 // They are not counts of complete perfect-clear solutions. One optional hold is considered.
-export function analyzePlacements({board,current,hold=null,queue=[],canHold=true},progress=()=>{}){
+export function analyzePlacements({board,current,hold=null,queue=[],canHold=true,continueAfterPerfect=false},progress=()=>{}){
   const groups=[{source:'current',type:current.type,start:current,nextType:queue[0]}];
   if(canHold){const type=hold||queue[0];if(type)groups.push({source:'hold',type,start:spawnPiece(type),nextType:hold?queue[0]:queue[1]});}
   const options=[];
@@ -39,10 +39,10 @@ export function analyzePlacements({board,current,hold=null,queue=[],canHold=true
     const candidates=enumeratePlacements(board,group.start);
     for(const candidate of candidates){
       const result=placedResult(board,candidate.p);
-      const next=!result.perfect&&group.nextType?enumeratePlacements(result.board,spawnPiece(group.nextType)).map(choice=>{
+      const next=(!result.perfect||continueAfterPerfect)&&group.nextType?enumeratePlacements(result.board,spawnPiece(group.nextType)).map(choice=>{
         const placed=placedResult(result.board,choice.p);return {p:choice.p,cleared:placed.cleared,perfect:placed.perfect};
       }):[];
-      options.push({id:options.length,source:group.source,type:group.type,p:candidate.p,moves:candidate.moves,after:result.board,cleared:result.cleared,perfect:result.perfect,nextType:result.perfect?null:group.nextType,next,nextCount:next.length,nextPerfect:next.filter(choice=>choice.perfect).length});
+      options.push({id:options.length,source:group.source,type:group.type,p:candidate.p,moves:candidate.moves,after:result.board,cleared:result.cleared,perfect:result.perfect,nextType:result.perfect&&!continueAfterPerfect?null:group.nextType,next,nextCount:next.length,nextPerfect:next.filter(choice=>choice.perfect).length});
       if(options.length%8===0)progress(options.length);
     }
   }
@@ -108,5 +108,26 @@ export function recommendPlacements(snapshot,result,{maxNodes=2500,timeMs=400}={
   result.options=sorted;
   result.recommendation=sorted[0]?{id:sorted[0].id,reason:sorted[0].solution?'pc':'heuristic',steps:sorted[0].solution?.length||null}:null;
   result.search={nodes,limited,window:Math.min(5,snapshot.queue.length)};
+  return result;
+}
+
+// 6–3 uses the actual board, not a preselected target. Column 7 is the I well.
+export function stackQuality(board){
+  const base=boardQuality(board),heights=Array.from({length:10},(_,x)=>{const top=board.findIndex(row=>row[x]);return top<0?0:20-top;});
+  const leftHeight=heights.slice(0,6).reduce((a,b)=>a+b,0)/6,rightHeight=heights.slice(7).reduce((a,b)=>a+b,0)/3;
+  const sideRoughness=[...heights.slice(1,6).map((h,i)=>Math.abs(h-heights[i])),...heights.slice(8).map((h,i)=>Math.abs(h-heights[i+7]))].reduce((a,b)=>a+b,0);
+  return {...base,wellBlocks:board.filter(row=>row[6]).length,leftHeight,rightHeight,balance:Math.abs(leftHeight-rightHeight),sideRoughness};
+}
+function stackScore(q,cleared=0){return -q.wellBlocks*20000-q.holes*10000-q.height*160-q.totalHeight*6-q.balance*140-q.sideRoughness*25+(cleared===4?7000:-cleared*350);}
+export function recommendStackPlacements(snapshot,result){
+  for(const option of result.options){
+    option.stackQuality=stackQuality(option.after);const immediate=stackScore(option.stackQuality,option.cleared);
+    let best=null;
+    for(const next of option.next){const after=clearRows(stampShape(option.after,next.p));const quality=stackQuality(after.board),score=stackScore(quality,after.cleared);if(!best||score>best.score)best={p:next.p,cleared:after.cleared,quality,score};}
+    option.followUp=best;option.score=best?immediate*.35+best.score*.65+(option.cleared===4?7000:0):immediate;
+  }
+  result.options.sort((a,b)=>b.score-a.score||(a.source===b.source?0:a.source==='current'?-1:1));
+  const best=result.options[0];result.recommendation=best?{id:best.id,reason:best.cleared===4?'tetris':'stack',steps:best.followUp?2:1}:null;
+  result.search={depth:2,window:Math.min(5,snapshot.queue.length),limited:true};
   return result;
 }

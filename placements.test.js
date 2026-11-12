@@ -68,3 +68,19 @@ test('a three-move PC proof includes reachable tucks and conserves queue/hold',(
   }
   assert.ok(board.flat().every(v=>!v));
 });
+
+import {stackQuality,recommendStackPlacements} from './placements.js';
+test('6–3 ranks live off-plan placements, keeps column 7 clear, and explains its metrics',()=>{
+  const board=stampShape(emptyBoard(),{type:'O',m:shapes.O,x:1,y:18}),snapshot={board,current:spawnPiece('T'),hold:'L',queue:['I','J','S','Z','O'],canHold:true},original=JSON.stringify(snapshot);
+  const result=recommendStackPlacements(snapshot,analyzePlacements(snapshot));const best=result.options[0];
+  assert.equal(JSON.stringify(snapshot),original);assert.equal(result.recommendation.id,best.id);assert.equal(result.recommendation.reason,'stack');assert.equal(best.stackQuality.wellBlocks,0);assert.equal(best.stackQuality.holes,0);
+  assert.ok(result.options.some(o=>o.stackQuality.wellBlocks>0));assert.ok(best.followUp);
+  assert.equal(result.search.depth,2);for(const option of result.options){assert.deepEqual(option.stackQuality,stackQuality(option.after));assert.ok(Number.isFinite(option.score));}
+});
+test('6–3 prefers a real four-line clear through column 7 and re-evaluates blocked wells',()=>{
+  const board=emptyBoard();for(let y=16;y<20;y++)for(let x=0;x<10;x++)if(x!==6)board[y][x]='J';
+  const snapshot={board,current:spawnPiece('I'),queue:['T','S'],canHold:false};
+  const result=recommendStackPlacements(snapshot,analyzePlacements({...snapshot,continueAfterPerfect:true}));assert.ok(result.options[0].nextCount>0);assert.equal(result.recommendation.reason,'tetris');assert.equal(result.options[0].cleared,4);assert.equal(result.options[0].stackQuality.wellBlocks,0);
+  const bad=stampShape(emptyBoard(),{type:'O',m:shapes.O,x:6,y:18});assert.equal(stackQuality(bad).wellBlocks,2);
+  const changed=recommendStackPlacements({...snapshot,board:bad},analyzePlacements({...snapshot,board:bad}));assert.equal(changed.recommendation.reason,'stack');assert.notDeepEqual(changed.options[0].after,result.options[0].after);
+});

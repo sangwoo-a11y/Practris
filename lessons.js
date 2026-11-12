@@ -1,5 +1,5 @@
-import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=9';
-import {catalog} from './lesson-data.js?v=9';
+import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=10';
+import {catalog} from './lesson-data.js?v=10';
 export const isLesson=mode=>['stack63','perfect','tspin'].includes(mode);
 export function seededRandom(seed){let state=seed>>>0||1;return()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return(state>>>0)/4294967296;};}
 const piece=p=>({type:p.type,x:p.x,y:p.y,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns||0))});
