@@ -35,3 +35,36 @@ test('enumeration includes an SRS triple tuck, not only vertical hard drops',()=
   const result=enumeratePlacements(board,spawnPiece('T'));const option=result.find(o=>clearRows(stampShape(board,o.p)).cleared===3);
   assert.ok(option);assert.ok(option.moves.some(move=>['cw','ccw','flip'].includes(move)));replay(board,spawnPiece('T'),option.moves);
 });
+
+import {recommendPlacements,boardQuality} from './placements.js';
+test('recommendation prioritizes a proven PC and every recorded step clears the real board',()=>{
+  const board=emptyBoard();for(let y=18;y<20;y++)for(let x=0;x<10;x++)if(x!==4&&x!==5)board[y][x]='J';
+  const snapshot={board,current:spawnPiece('I'),hold:'O',queue:['T','J','L','S','Z'],canHold:true};
+  const result=recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:60,timeMs:100});
+  assert.equal(result.recommendation.reason,'pc');const option=result.options[0];assert.equal(option.id,result.recommendation.id);assert.equal(option.source,'hold');
+  let currentBoard=board;
+  for(const step of option.solution){assert.ok(enumeratePlacements(currentBoard,spawnPiece(step.p.type)).some(o=>placementKey(o.p)===placementKey(step.p)));const placed=clearRows(stampShape(currentBoard,step.p));assert.deepEqual(placed.board,step.after);currentBoard=step.after;}
+  assert.ok(currentBoard.flat().every(v=>!v));
+});
+test('off-plan positions are reranked from the actual board without claiming an unproved PC',()=>{
+  const left=stampShape(emptyBoard(),{type:'O',m:shapes.O,x:0,y:18}),right=stampShape(emptyBoard(),{type:'O',m:shapes.O,x:8,y:18});
+  const solve=board=>recommendPlacements({board,current:spawnPiece('T'),queue:['I'],canHold:false},analyzePlacements({board,current:spawnPiece('T'),queue:['I'],canHold:false}),{maxNodes:0});
+  const a=solve(left),b=solve(right);for(const result of [a,b]){assert.equal(result.recommendation.reason,'heuristic');assert.ok(!result.options[0].solution);assert.equal(result.search.limited,true);for(const option of result.options)assert.deepEqual(option.quality,boardQuality(option.after));}
+  assert.notEqual(placementKey(a.options[0].p),placementKey(b.options[0].p));
+});
+
+import {makeCourse} from './courses.js';
+test('a three-move PC proof includes reachable tucks and conserves queue/hold',()=>{
+  const course=makeCourse('pco');let board=emptyBoard();for(const step of course.steps.slice(0,7))board=clearRows(stampShape(board,step.target)).board;
+  const snapshot={board,current:spawnPiece(course.queue[7]),queue:course.queue.slice(8,13),hold:null,canHold:true};
+  const result=recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:10000,timeMs:2000});
+  assert.equal(result.recommendation.reason,'pc');assert.equal(result.recommendation.steps,3);
+  let current=snapshot.current.type,queue=[...snapshot.queue],hold=null;
+  for(const step of result.options[0].solution){
+    if(step.useHold){if(hold)[current,hold]=[hold,current];else{hold=current;current=queue.shift();}}
+    assert.equal(step.p.type,current);
+    assert.ok(enumeratePlacements(board,spawnPiece(current)).some(o=>placementKey(o.p)===placementKey(step.p)));
+    const placed=clearRows(stampShape(board,step.p));assert.deepEqual(placed.board,step.after);board=placed.board;current=queue.shift();
+  }
+  assert.ok(board.flat().every(v=>!v));
+});

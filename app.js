@@ -1,14 +1,16 @@
-import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=8';
-import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=8';
-import {isLesson,makeLesson} from './lessons.js?v=8';
-import {guideHTML,exampleState,boardDiagram} from './guides.js?v=8';
-import {buildLibrary,getBuild,buildHTML} from './builds.js?v=8';
+import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=9';
+import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=9';
+import {isLesson,makeLesson} from './lessons.js?v=9';
+import {guideHTML,exampleState,boardDiagram} from './guides.js?v=9';
+import {enumeratePlacements,spawnPiece} from './placements.js?v=9';
+import {makeCourse,courseInfo,courseInstruction} from './courses.js?v=9';
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 // Decorative mosaics use the same palette as the playable board.
 function artGrid(el,w,h,type){const cells=Array(w*h).fill('');if(type==='hero'){const rows=['..........','..........','....TTT...','.....T....','..........','..........','..........','..........','LL....SS..','L...TSSOO.','L..TTTJOO.','ZZ..T.JJJ.','.ZZIIII...','SS.LLL.ZZ.','JSSOOLZZT.','JJJOOLTTT.'];rows.forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}else{const patterns={free:['........','........','...T....','..TTT...','........','SS..L...','.SS.L...','IIII.LL.'],skill:['........','...T....','..TTT...','........','JJ...ZZ.','.J...Z..','JJJ.JJJ.','IIIIIIII'],build:['........','...OO...','...OO...','........','L..T....','L.TTTSS.','LL..SS..','IIII....']};patterns[type].forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}el.style.setProperty('--cols',w);el.innerHTML=cells.map(t=>`<i${t?` style="--block:${colors[t]}" class="filled"`:''}></i>`).join('')}
 artGrid($('#hero-grid'),10,16,'hero');$$('[data-art]').forEach(el=>artGrid(el,8,8,el.dataset.art));
 let mode='free',board=emptyBoard(),piece,queue=[],hold=null,canHold=true,drawn=0;
 let usedLayouts=new Set(),pcHistory=[],pcPlaced=0;
+let activeCourseId='tki',course=null,courseIndex=0,courseDone=false,courseHistory=[],courseShown=true,courseMistakes=0;
 let bookResume=false,bookTopic='basics',bookExample=null,exampleIndex=0;
 let running=false,paused=false,over=false,lines=0,pieces=0,seconds=0,noticeTimer;
 let lesson=null,lessonStep=0,round=0,completed=0,showHint=true,sessionSeed=Date.now()>>>0;
@@ -36,45 +38,49 @@ function spawn(t){
   piece={type,m:shapes[type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};refill();fallElapsed=0;groundElapsed=0;
   horizontal.cut(performance.now(),handling);
   if(collides(board,piece)){running=false;over=true;releaseInputs();overlay('GAME OVER','다시 시작');}
-  side();
+  side();if(mode==='perfect'&&pcPlaced>0&&$('#pc-auto').checked)requestPCAnalysis(false);
 }
 function overlay(title,button){$('#board-overlay').hidden=false;$('#overlay-title').textContent=title;$('#start').textContent=button;}
 function updateGuide(message=''){
   if(!lesson)return;
   $('#challenge-name').textContent=lesson.title;$('#progress').textContent=mode==='perfect'?`${pcPlaced}개 배치 · 완료 ${completed}`:`${lessonStep+1}/${lesson.steps.length} · 완료 ${completed}`;
-  if(mode==='perfect'){ $('#pc-undo').disabled=pcHistory.length===0;$('#pc-hint').disabled=pcPlaced===0||over;$('#pc-mode-label').textContent=pcPlaced===0?'첫 미노를 놓으면 다음 배치를 분석합니다.':'자유 풀이 · 현재 보드 분석'; }
+  if(mode==='perfect'){ $('#pc-undo').disabled=pcHistory.length===0;$('#pc-hint').disabled=pcPlaced===0||over;$('#pc-mode-label').textContent=pcPlaced===0?'첫 미노를 놓으면 분석합니다.':$('#pc-auto').checked?'현재 보드 · 자동 추천':'현재 보드 · 후보 보기'; }
   if(message&&message!=='좋아요. 다음 배치를 이어가세요.')toast(message);
 }
 
 function loadLesson(){
+  clearPCAnalysis();
   for(let attempt=0;attempt<64;attempt++){lesson=makeLesson(mode,round,{kind:$('#spin-kind').value,seed:sessionSeed,attempt});if(!usedLayouts.has(lesson.id))break;}
   usedLayouts.add(lesson.id);drawn=0;lessonStep=0;pcHistory=[];pcPlaced=0;showHint=mode!=='perfect';board=lesson.board;queue=[...lesson.queue];
   hold=null;canHold=true;over=false;spawn();updateGuide();draw();
 }
 function reset(){
-  usedLayouts=new Set();releaseInputs();running=false;paused=false;over=false;lines=0;pieces=0;seconds=0;sessionElapsed=0;round=0;completed=0;drawn=0;
+  clearPCAnalysis();usedLayouts=new Set();releaseInputs();running=false;paused=false;over=false;lines=0;pieces=0;seconds=0;sessionElapsed=0;round=0;completed=0;drawn=0;
   board=emptyBoard();queue=[];hold=null;canHold=true;history=[];groups=emptyBoard().map(r=>r.map(()=>0));groupId=1;pointer=null;lesson=null;
+  if(mode==='build'){course=makeCourse(activeCourseId);courseIndex=0;courseDone=false;courseHistory=[];courseMistakes=0;courseShown=true;board=course.board;queue=[...course.queue];spawn();running=true;$('#board-overlay').hidden=true;updateCourse();draw();return;}
   if(isLesson(mode))loadLesson();else spawn();
   overlay('READY','시작 ▶');$('#board-overlay').hidden=mode==='editor';draw();
 }
+function courseDoneOrInactive(){return mode==='build'&&courseDone;}
 function configure(m){
-  mode=m;sessionSeed=crypto.getRandomValues(new Uint32Array(1))[0];usedLayouts=new Set();showHint=m!=='perfect';const editor=m==='editor',skill=isLesson(m);
-  $('#practice-title').textContent=editor?'빌드 에디터':skill?'스킬 연습':'자유 연습';
-  $('#board-label').textContent=editor?'BUILD EDITOR':skill?'GUIDED PRACTICE':'FREE PLAY';
+  clearPCAnalysis();mode=m;if(m!=='build'&&location.hash.startsWith('#learn'))window.history.replaceState(null,'','#home');sessionSeed=crypto.getRandomValues(new Uint32Array(1))[0];usedLayouts=new Set();showHint=m!=='perfect';const editor=m==='editor',skill=isLesson(m);
+  $('#practice-title').textContent=m==='build'?'직접 쌓는 빌드 학습':editor?'빌드 에디터':skill?'스킬 연습':'자유 연습';
+  $('#board-label').textContent=m==='build'?'BUILD LESSON':editor?'BUILD EDITOR':skill?'GUIDED PRACTICE':'FREE PLAY';
   $$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'tspin':m)));
+  $('.course-picker').hidden=m!=='build';$('#build-coach').hidden=m!=='build';$('.practice-body').classList.toggle('learning',m==='build');if(m==='build')$('#build-course').value=activeCourseId;
   $('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;
   $('#challenge-status').hidden=!skill;$('.spin-picker').hidden=m!=='tspin';$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;
   $('#pc-tools').hidden=m!=='perfect';$('#next-challenge').hidden=!skill;$('#pause').hidden=editor;$('.touch-controls').hidden=editor;
   reset();if(skill)start();
 }
 function open(m){applyHandling();configure(m);if(!dialog.open){dialog.showModal();document.body.style.overflow='hidden';}canvas.focus({preventScroll:true});}
-function close(){running=false;releaseInputs();dialog.close();document.body.style.overflow='';}
+function close(){if(mode==='build'&&location.hash.startsWith('#learn'))window.history.replaceState(null,'','#home');clearPCAnalysis();running=false;releaseInputs();dialog.close();document.body.style.overflow='';}
 $$('[data-open]').forEach(b=>b.onclick=()=>open(b.dataset.open));
 $$('[data-switch]').forEach(b=>b.onclick=()=>{configure(b.dataset.switch);canvas.focus({preventScroll:true});});
 $('.close-button').onclick=close;$('#back-home').onclick=close;
 dialog.addEventListener('cancel',e=>{e.preventDefault();close();});$('#lesson').onchange=e=>{configure(e.target.value);canvas.focus({preventScroll:true});};
 $('#spin-kind').onchange=()=>{configure(mode);canvas.focus({preventScroll:true});};
-function start(){if(over)reset();running=true;paused=false;groundElapsed=0;$('#board-overlay').hidden=true;canvas.focus({preventScroll:true});draw();}
+function start(){if(mode==='build'&&courseDone){reset();return;}if(over)reset();running=true;paused=false;groundElapsed=0;$('#board-overlay').hidden=true;canvas.focus({preventScroll:true});draw();}
 function pause(){if(mode==='editor'||!running||over)return;paused=!paused;releaseInputs();if(paused)overlay('PAUSED','계속 ▶');else start();}
 function move(dx,dy){const p={...piece,x:piece.x+dx,y:piece.y+dy,lastRotation:false};if(collides(board,p))return false;piece=p;groundElapsed=0;draw();return true;}
 function rotate(turns){
@@ -83,11 +89,42 @@ function rotate(turns){
   }
   const p=rotatedPiece(board,piece,turns);if(p){piece=p;groundElapsed=0;horizontal.cut(performance.now(),handling);draw();}
 }
+function updateCourse(message=''){
+  const instruction=courseInstruction(course,courseIndex);
+  $('#course-scope').textContent=`${course.name} · ${course.scope}`;
+  $('#course-progress').textContent=`${courseIndex} / ${course.steps.length}`;
+  $('#course-bar').max=course.steps.length;$('#course-bar').value=courseIndex;
+  $('#course-phase').textContent=courseDone?'COMPLETE':course.steps[courseIndex].phase;
+  $('#course-step-title').textContent=instruction.title;$('#course-why').textContent=instruction.why;
+  $('#course-feedback').textContent=message;
+  $('#course-route').hidden=courseDone;
+  if(!courseDone){const step=course.steps[courseIndex],moves=step.moves||enumeratePlacements(board,spawnPiece(step.target.type)).find(o=>samePlacement(o.p,step.target))?.moves||[];
+    const route=[];for(const move of moves){if(route.at(-1)?.move===move)route.at(-1).count++;else route.push({move,count:1});}
+    const keys={left:'←',right:'→',down:'↓',cw:'X',ccw:'Z',flip:'A'};
+    $('#course-moves').textContent=(piece.type!==step.target.type?`홀드로 ${step.target.type} 선택 → `:'')+route.map(s=>keys[s.move]+(s.count>1?` ×${s.count}`:'')).join(' → ')+' → SPACE';
+  }
+  $('#course-undo').disabled=!courseHistory.length;$('#course-hint').hidden=courseDone;
+  $('#course-hint').textContent=`목표 표시 ${courseShown?'ON':'OFF'}`;$('#course-hint').setAttribute('aria-pressed',String(courseShown));
+  $('#course-again').hidden=!courseDone;$('#course-next').hidden=!courseDone;
+}
+function lockCourse(){
+  const step=course.steps[courseIndex],placed=stampShape(board,piece),result=placed&&clearRows(placed);
+  if(piece.type!==step.target.type||!samePlacement(piece,step.target)||!result||result.cleared!==step.clear||(step.spin&&classifyTSpin(board,piece,result.cleared)!==step.spin)){
+    courseMistakes++;releaseInputs();spawn(piece.type);
+    updateCourse(step.spin?'표시된 홈에 회전으로 진입해 확정하세요.':'표시된 위치에 다시 놓아보세요. 보드와 NEXT는 유지됩니다.');draw();return;
+  }
+  courseHistory.push({board:board.map(r=>[...r]),queue:[...queue],hold,drawn,type:piece.type,lines,pieces,index:courseIndex});
+  board=result.board;lines+=result.cleared;pieces++;courseIndex++;canHold=true;releaseInputs();
+  if(courseIndex===course.steps.length){courseDone=true;running=false;piece=null;}
+  else spawn();
+  updateCourse(step.spin?`T-SPIN ${step.spin.toUpperCase()}`:'');side();draw();
+}
 function retryStep(message){
   releaseInputs();piece={type:piece.type,m:shapes[piece.type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};
   fallElapsed=0;groundElapsed=0;updateGuide(message);draw();
 }
 function lock(){
+  if(mode==='build'){lockCourse();return;}
   if(isLesson(mode)&&mode!=='perfect'&&(piece.type!==lesson.steps[lessonStep].target.type||!samePlacement(piece,lesson.steps[lessonStep].target)||(lesson.steps[lessonStep].tspin&&classifyTSpin(board,piece,lesson.steps[lessonStep].clear)!==lesson.steps[lessonStep].spin))){
     retryStep(lesson.steps[lessonStep].tspin?'회전으로 진입하세요. ↓ → 회전 → ↓ → 회전 → SPACE.':'배치가 달라요. 밝은 목표 모양에 맞춰 다시 놓으세요.');return;
   }
@@ -120,6 +157,8 @@ function draw(){
     }
     return;
   }
+  if(mode==='perfect'&&recommendedPlacement&&$('#pc-auto').checked){outline(recommendedPlacement,'#ffd77b');}
+  if(mode==='build'&&course&&!courseDone&&courseShown){const target=course.steps[courseIndex].target;for(const [x,y] of occupiedCells(target))block(x,y,target.type,.25);outline(target,'#d5ff70');}
   if(lesson&&showHint&&mode!=='perfect'){
     for(let i=lesson.steps.length-1;i>=lessonStep;i--){
       const p=lesson.steps[i].target,current=i===lessonStep;
@@ -134,6 +173,7 @@ function draw(){
   }
 }
 function key(k){
+  if(mode==='build'&&courseDone){if(k==='r'||k==='Enter')reset();return;}
   if(k==='Escape'){pause();return;}
   if(k==='r'){reset();return;}
   if(mode==='editor'){
@@ -147,10 +187,10 @@ function key(k){
   if(k==='ArrowUp'||k==='x')rotate(1);if(k==='z')rotate(-1);if(k==='a')rotate(2);
   if(k===' '){while(move(0,1)){}lock();}
   if((k==='c'||k==='Shift')&&canHold){
-    const prior=hold;hold=piece.type;spawn(prior||undefined);canHold=isLesson(mode);draw();
+    const prior=hold;hold=piece.type;spawn(prior||undefined);canHold=isLesson(mode)||mode==='build';if(mode==='build')updateCourse();draw();
   }
 }
-function active(){return dialog.open&&!book.open&&!analysis.open&&running&&!paused&&!over&&mode!=='editor';}
+function active(){return !courseDoneOrInactive()&&dialog.open&&!book.open&&!analysis.open&&running&&!paused&&!over&&mode!=='editor';}
 const blockedKeys=['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','Escape','Shift'];
 document.addEventListener('keydown',e=>{
   if(book.open||analysis.open||!dialog.open||(e.target instanceof Element&&e.target.matches('select,input,textarea'))||e.ctrlKey||e.metaKey||e.altKey)return;
@@ -158,7 +198,7 @@ document.addEventListener('keydown',e=>{
   if(blockedKeys.includes(k))e.preventDefault();
   if(e.repeat)return;
   if(e.target.tagName==='BUTTON'&&k==='Enter')return;
-  if(!running&&!over&&mode!=='editor'&&['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','a','c','x','z','Shift'].includes(k))start();
+  if(!running&&!over&&!courseDoneOrInactive()&&mode!=='editor'&&['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','a','c','x','z','Shift'].includes(k))start();
   if(active()&&(k==='ArrowLeft'||k==='ArrowRight')){
     const dir=horizontal.down(k==='ArrowLeft'?-1:1,performance.now(),handling);if(dir)move(dir,0);return;
   }
@@ -246,12 +286,12 @@ function frame(now){
   if(active()){
     sessionElapsed+=dt;const elapsed=Math.floor(sessionElapsed/1000);if(elapsed!==seconds){seconds=elapsed;side();}
     const repeat=horizontal.tick(now,handling);for(let i=0;i<repeat.steps;i++)if(!move(repeat.direction,0))break;
-    if(!isLesson(mode)||softDrop){
+    if((!isLesson(mode)&&mode!=='build')||softDrop){
       const interval=fallInterval(handling,softDrop);fallElapsed+=dt;
       if(interval===0){while(move(0,1)){}fallElapsed=0;}
       else while(fallElapsed>=interval){fallElapsed-=interval;if(!move(0,1)){fallElapsed=0;break;}}
     }
-    if(!isLesson(mode)&&collides(board,{...piece,y:piece.y+1})){
+    if(!isLesson(mode)&&mode!=='build'&&collides(board,{...piece,y:piece.y+1})){
       groundElapsed+=dt;if(groundElapsed>=450)lock();
     }else groundElapsed=0;
   }
@@ -266,7 +306,7 @@ $('#pc-undo').onclick=()=>{
   const prior=pcHistory.pop();if(!prior)return;
   board=prior.board;queue=prior.queue;hold=prior.hold;drawn=prior.drawn;lines=prior.lines;pieces=prior.pieces;pcPlaced=prior.pcPlaced;lessonStep=prior.lessonStep;
   piece={type:prior.type,m:shapes[prior.type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};
-  canHold=true;over=false;running=true;paused=false;showHint=false;groundElapsed=0;releaseInputs();$('#board-overlay').hidden=true;side();updateGuide();draw();canvas.focus({preventScroll:true});
+  canHold=true;over=false;running=true;paused=false;showHint=false;groundElapsed=0;releaseInputs();$('#board-overlay').hidden=true;side();updateGuide();if(pcPlaced>0&&$('#pc-auto').checked)requestPCAnalysis(false);else clearPCAnalysis();draw();canvas.focus({preventScroll:true});
 };
 function renderExample(){
   if(!bookExample)return;const state=exampleState(bookExample,exampleIndex);
@@ -282,7 +322,7 @@ function setBookTopic(topic){
   if(topic==='perfect'){bookExample=mode==='perfect'&&lesson?lesson:makeLesson('perfect',0,{seed:42});exampleIndex=0;renderExample();}
 }
 function openBook(topic='basics',example=false){
-  if(topic==='current')topic=isLesson(mode)?mode:mode==='editor'?'editor':'basics';
+  if(topic==='current')topic=mode==='build'?(activeCourseId==='pco'?'perfect':'tspin'):isLesson(mode)?mode:mode==='editor'?'editor':'basics';
   bookResume=active();releaseInputs();if(bookResume)paused=true;
   setBookTopic(topic);book.showModal();book.scrollTop=0;if(!dialog.open)document.body.style.overflow='hidden';
   if(example)$('#book-example').scrollIntoView({block:'start'});
@@ -295,17 +335,18 @@ $('#example-prev').onclick=()=>{if(exampleIndex>0){exampleIndex--;renderExample(
 $('#example-next').onclick=()=>{if(exampleIndex<bookExample.steps.length){exampleIndex++;renderExample();}};
 $('#pc-example').onclick=()=>openBook('perfect',true);
 
-// On-demand analysis uses the live board and actual bag/hold, independent of lesson examples.
+// Every placement reanalyzes the live board and visible queue; the gallery is optional.
 let analysisWorker=null,analysisId=0,analysisResume=false,analysisResult=null,analysisSnapshot=null;
+let recommendedPlacement=null,analysisKey='',analysisPlanIndex=0;
 let analysisFilter='all',analysisPage=0,analysisSelected=0,analysisNextIndex=0;
 const candidatePageSize=8;
 function previewRow(board,p=null){const filled=board.findIndex(row=>row.some(Boolean));const targetTop=p?Math.min(...occupiedCells(p).map(([,y])=>y)):19;return Math.max(0,Math.min(12,filled<0?19:filled,targetTop)-1);}
 function analysisChoices(){return (analysisResult?.options||[]).filter(option=>analysisFilter==='all'||option.source===analysisFilter);}
 function renderAnalysis(){
   const options=analysisChoices(),pages=Math.max(1,Math.ceil(options.length/candidatePageSize));analysisPage=Math.min(analysisPage,pages-1);
-  $('#analysis-options').innerHTML=options.slice(analysisPage*candidatePageSize,(analysisPage+1)*candidatePageSize).map(option=>`<button class="candidate-card ${option.id===analysisSelected?'active':''}" data-choice="${option.id}" aria-pressed="${option.id===analysisSelected}"><span>${option.source==='hold'?'홀드':'현재'} ${option.type} · 후보 ${option.id+1}</span>${boardDiagram(analysisSnapshot.board,option.p,previewRow(analysisSnapshot.board,option.p))}<small>${option.perfect?'PC 완성':`다음 ${option.nextType||'—'} · ${option.nextCount}곳`}</small></button>`).join('')||'<p class="no-candidates">이 조건에서 놓을 수 있는 위치가 없습니다.</p>';
+  $('#analysis-options').innerHTML=options.slice(analysisPage*candidatePageSize,(analysisPage+1)*candidatePageSize).map(option=>`<button class="candidate-card ${option.id===analysisSelected?'active':''}" data-choice="${option.id}" aria-pressed="${option.id===analysisSelected}"><span>${option.id===analysisResult.recommendation?.id?'★ 추천 · ':''}${option.source==='hold'?'홀드':'현재'} ${option.type} · 후보 ${option.id+1}</span>${boardDiagram(analysisSnapshot.board,option.p,previewRow(analysisSnapshot.board,option.p))}<small>${option.solution?`PC 경로 ${option.solution.length}수`: `다음 ${option.nextType||'—'} · ${option.nextCount}곳`}</small></button>`).join('')||'<p class="no-candidates">이 조건에서 놓을 수 있는 위치가 없습니다.</p>';
   $('#analysis-page').textContent=`${analysisPage+1} / ${pages}`;$('#analysis-prev').disabled=analysisPage===0;$('#analysis-next').disabled=analysisPage===pages-1;
-  $$('[data-choice]').forEach(button=>button.onclick=()=>{analysisSelected=Number(button.dataset.choice);analysisNextIndex=0;renderAnalysis();});
+  $$('[data-choice]').forEach(button=>button.onclick=()=>{analysisSelected=Number(button.dataset.choice);analysisNextIndex=0;analysisPlanIndex=0;renderAnalysis();});
   const option=analysisResult?.options.find(item=>item.id===analysisSelected);
   if(!option){$('#analysis-detail').innerHTML='';return;}
   analysisNextIndex=Math.max(0,Math.min(analysisNextIndex,option.next.length-1));const next=option.next[analysisNextIndex];
@@ -313,6 +354,12 @@ function renderAnalysis(){
   const symbols={left:'←',right:'→',down:'↓',cw:'X',ccw:'Z',flip:'A'};
   const moves=route.map(step=>`${symbols[step.move]}${step.count>1?'×'+step.count:''}`).join(' ');
   $('#analysis-detail').innerHTML=`<h3>후보 ${option.id+1} · ${option.source==='hold'?'홀드 후 ':''}${option.type}</h3><p class="analysis-metrics">${option.cleared}줄 클리어${option.perfect?' · PERFECT CLEAR':''}</p><div class="analysis-preview-grid"><figure>${boardDiagram(analysisSnapshot.board,option.p,previewRow(analysisSnapshot.board,option.p))}<figcaption>이번 ${option.type} 배치</figcaption></figure><figure>${boardDiagram(option.after,next?.p||null,previewRow(option.after,next?.p))}<figcaption>${option.perfect?'PC 완성':`다음 ${option.nextType||'—'} · ${option.nextCount}곳`}</figcaption></figure></div><div class="next-choice-controls"><button id="next-choice-prev" ${analysisNextIndex<=0?'disabled':''}>←</button><span>${next?`${analysisNextIndex+1} / ${option.nextCount}`:'0 / 0'}</span><button id="next-choice-next" ${analysisNextIndex>=option.next.length-1?'disabled':''}>→</button></div>${option.nextPerfect?`<p class="next-pc">그다음 한 수에서 PC 완성: ${option.nextPerfect}곳</p>`:''}<details class="analysis-route"><summary>이번 후보의 조작 경로</summary><p>${option.source==='hold'?'C → ':''}${moves} → SPACE</p></details>`;
+  if(option.solution){
+    analysisPlanIndex=Math.min(analysisPlanIndex,option.solution.length-1);
+    const step=option.solution[analysisPlanIndex],before=analysisPlanIndex?option.solution[analysisPlanIndex-1].after:analysisSnapshot.board;
+    $('#analysis-detail').insertAdjacentHTML('beforeend',`<section class="confirmed-route"><h4>확인된 PC 경로 · ${analysisPlanIndex+1} / ${option.solution.length}</h4>${boardDiagram(before,step.p,previewRow(before,step.p))}<p>${step.useHold?'홀드 후 ':''}${step.p.type} · ${step.cleared}줄 클리어</p><div class="next-choice-controls"><button id="plan-prev" ${analysisPlanIndex===0?'disabled':''}>←</button><button id="plan-next" ${analysisPlanIndex===option.solution.length-1?'disabled':''}>→</button></div></section>`);
+    $('#plan-prev').onclick=()=>{analysisPlanIndex--;renderAnalysis();};$('#plan-next').onclick=()=>{analysisPlanIndex++;renderAnalysis();};
+  }
   $('#next-choice-prev').onclick=()=>{if(analysisNextIndex>0){analysisNextIndex--;renderAnalysis();}};
   $('#next-choice-next').onclick=()=>{if(analysisNextIndex<option.next.length-1){analysisNextIndex++;renderAnalysis();}};
 }
@@ -323,50 +370,65 @@ function renderAnalysisFilters(){
   $('#analysis-filters').innerHTML=filters.map(([value,label])=>`<button data-analysis-filter="${value}" class="${analysisFilter===value?'active':''}" aria-pressed="${analysisFilter===value}">${label}</button>`).join('');
   $$('[data-analysis-filter]').forEach(button=>button.onclick=()=>{analysisFilter=button.dataset.analysisFilter;analysisPage=0;analysisSelected=analysisChoices()[0]?.id??-1;analysisNextIndex=0;renderAnalysisFilters();renderAnalysis();});
 }
-function openAnalysis(){
-  if(mode!=='perfect'||pcPlaced===0||over)return;
-  analysisResume=active();releaseInputs();if(analysisResume)paused=true;
-  analysisSnapshot={board:board.map(row=>[...row]),current:structuredClone(piece),queue:[...queue],hold,canHold};
-  analysisResult=null;analysisFilter='all';analysisPage=0;analysisNextIndex=0;const id=++analysisId;
-  $('#analysis-status').textContent='현재 보드를 분석 중입니다.';$('#analysis-options').innerHTML='';$('#analysis-detail').innerHTML='';$('#analysis-filters').innerHTML='';$('#analysis-page').textContent='';$('#analysis-prev').disabled=true;$('#analysis-next').disabled=true;
-  analysis.showModal();analysis.scrollTop=0;
-  analysisWorker?.terminate();analysisWorker=new Worker(new URL('./placement-worker.js?v=8',import.meta.url),{type:'module'});
-  analysisWorker.onmessage=({data})=>{
-    if(data.id!==analysisId||!analysis.open)return;
-    if(data.type==='progress')$('#analysis-status').textContent=`현재 보드 분석 중 · ${data.count}개 후보 확인`;
-    if(data.type==='error')$('#analysis-status').textContent='분석에 실패했습니다. 닫은 뒤 다시 시도해 주세요.';
-    if(data.type==='done'){analysisResult=data.result;analysisSelected=analysisResult.options[0]?.id??-1;$('#analysis-status').textContent=`현재 보드에서 ${analysisResult.options.length}개 배치 후보`;renderAnalysisFilters();renderAnalysis();}
-  };
-  analysisWorker.onerror=()=>{if(id!==analysisId||!analysis.open)return;$('#analysis-status').textContent='분석에 실패했습니다. 닫은 뒤 다시 시도해 주세요.';};
-  analysisWorker.postMessage({id,snapshot:analysisSnapshot});
+function clearPCAnalysis(){
+  analysisId++;analysisWorker?.terminate();analysisWorker=null;analysisResult=null;analysisSnapshot=null;analysisKey='';recommendedPlacement=null;
+  $('#pc-recommendation').textContent='';$('#pc-hint').textContent='다음 배치 경우';
 }
-function closeAnalysis(){analysisId++;analysisWorker?.terminate();analysisWorker=null;analysis.close();if(analysisResume&&dialog.open&&running&&!over){paused=false;canvas.focus({preventScroll:true});}analysisResume=false;}
+function snapshotKey(snapshot){return JSON.stringify([snapshot.board,snapshot.current.type,snapshot.current.x,snapshot.current.y,snapshot.current.rot,snapshot.queue.slice(0,5),snapshot.hold,snapshot.canHold]);}
+function recommendationText(){
+  const r=analysisResult?.recommendation;if(!r)return '놓을 수 있는 후보가 없습니다.';
+  return r.reason==='pc'?`PC 경로 확인 · ${r.steps}수`:'빈칸·높이 기준 추천 · PC 경로 미확인';
+}
+function showAnalysisResult(){
+  const option=analysisResult.options.find(o=>o.id===analysisResult.recommendation?.id);
+  recommendedPlacement=option?.p||null;
+  $('#pc-recommendation').textContent=`${analysisResult.options.length}개 후보 · ${option?.source==='hold'?'홀드 ':''}${option?.type||''} 추천. ${recommendationText()}`;
+  $('#pc-hint').textContent=`배치 후보 ${analysisResult.options.length}개 보기`;
+  $('#analysis-status').textContent=`현재 보드에서 ${analysisResult.options.length}개 배치 후보`;
+  $('#analysis-recommendation').textContent=recommendationText();
+  if(analysis.open){renderAnalysisFilters();renderAnalysis();}draw();
+}
+function requestPCAnalysis(show=false){
+  if(mode!=='perfect'||pcPlaced===0||over)return;
+  if(show&&!analysis.open){analysisResume=active();releaseInputs();if(analysisResume)paused=true;analysis.showModal();analysis.scrollTop=0;}
+  const snapshot={board:board.map(row=>[...row]),current:structuredClone(piece),queue:queue.slice(0,5),hold,canHold},key=snapshotKey(snapshot);
+  if(key===analysisKey&&analysisResult){showAnalysisResult();return;}
+  if(key===analysisKey&&analysisWorker)return;
+  clearPCAnalysis();analysisSnapshot=snapshot;analysisKey=key;analysisFilter='all';analysisPage=0;analysisNextIndex=0;analysisPlanIndex=0;
+  const id=++analysisId;$('#pc-recommendation').textContent='현재 배치에서 다음 수 분석 중…';
+  $('#analysis-status').textContent='현재 보드를 분석 중입니다.';$('#analysis-options').innerHTML='';$('#analysis-detail').innerHTML='';$('#analysis-filters').innerHTML='';$('#analysis-recommendation').textContent='';$('#analysis-page').textContent='';$('#analysis-prev').disabled=true;$('#analysis-next').disabled=true;
+  analysisWorker=new Worker(new URL('./placement-worker.js?v=9',import.meta.url),{type:'module'});
+  analysisWorker.onmessage=({data})=>{
+    if(data.id!==analysisId)return;
+    if(data.type==='progress')$('#analysis-status').textContent=`현재 보드 분석 중 · ${data.count}개 후보 확인`;
+    if(data.type==='error'){$('#analysis-status').textContent=$('#pc-recommendation').textContent='분석에 실패했습니다. 후보 보기를 눌러 다시 시도하세요.';analysisWorker?.terminate();analysisWorker=null;}
+    if(data.type==='done'){analysisResult=data.result;analysisSelected=analysisResult.options[0]?.id??-1;analysisWorker?.terminate();analysisWorker=null;showAnalysisResult();}
+  };
+  analysisWorker.onerror=()=>{if(id!==analysisId)return;$('#analysis-status').textContent=$('#pc-recommendation').textContent='분석에 실패했습니다. 다시 시도하세요.';analysisWorker?.terminate();analysisWorker=null;};
+  analysisWorker.postMessage({id,snapshot});draw();
+}
+function openAnalysis(){requestPCAnalysis(true);}
+function closeAnalysis(){analysis.close();if(analysisResume&&dialog.open&&running&&!over){paused=false;canvas.focus({preventScroll:true});}analysisResume=false;}
+$('#pc-auto').onchange=()=>{if($('#pc-auto').checked)requestPCAnalysis(false);else{clearPCAnalysis();draw();}updateGuide();canvas.focus({preventScroll:true});};
 $('#analysis-close').onclick=closeAnalysis;analysis.addEventListener('cancel',event=>{event.preventDefault();closeAnalysis();});
 $('#analysis-prev').onclick=()=>{if(analysisPage>0){analysisPage--;analysisSelected=analysisChoices()[analysisPage*candidatePageSize]?.id??-1;analysisNextIndex=0;renderAnalysis();}};
 $('#analysis-next').onclick=()=>{if((analysisPage+1)*candidatePageSize<analysisChoices().length){analysisPage++;analysisSelected=analysisChoices()[analysisPage*candidatePageSize]?.id??-1;analysisNextIndex=0;renderAnalysis();}};
 
-// Explanation mode is separate from the playable room and has shareable build URLs.
-let learnBuild='tki',learnStep=0;
-function renderBuildList(){
-  const query=$('#build-search').value.trim().toLowerCase();const matches=buildLibrary.filter(build=>`${build.name} ${build.tags.join(' ')}`.toLowerCase().includes(query));
-  $('#build-list').innerHTML=matches.map(build=>`<button data-build="${build.id}" class="${learnBuild===build.id?'active':''}" aria-pressed="${learnBuild===build.id}"><span>${build.name}</span><small>${build.tags.join(' / ')}</small></button>`).join('');$('#build-empty').hidden=matches.length>0;
-  $$('[data-build]').forEach(button=>button.onclick=()=>{location.hash=`learn/${button.dataset.build}`;});
+
+// Famous builds are played on the same board from the first placement to the attack.
+$('#build-course').innerHTML=Object.entries(courseInfo).map(([id,info])=>`<option value="${id}">${info.name}</option>`).join('');
+function openBuild(id='tki'){
+  activeCourseId=courseInfo[id]?id:'tki';open('build');window.history.replaceState(null,'',`#learn/${activeCourseId}`);
 }
-function renderBuildArticle(){
-  $('#build-article').innerHTML=buildHTML(learnBuild,learnStep);
-  $$('[data-build-step]').forEach(button=>button.onclick=()=>{learnStep=Number(button.dataset.buildStep);renderBuildArticle();});
-  $('#learn-prev').onclick=()=>{if(learnStep>0){learnStep--;renderBuildArticle();}};
-  $('#learn-next').onclick=()=>{if(learnStep<getBuild(learnBuild).flow.length-1){learnStep++;renderBuildArticle();}};
-  $$('[data-build-rules]').forEach(button=>button.onclick=()=>openBook(button.dataset.buildRules));
-}
-function syncView(){
-  const hash=location.hash.slice(1),isLearn=hash==='learn'||hash.startsWith('learn/');
-  $('#practice-home').hidden=isLearn;$('#learn').hidden=!isLearn;
-  if(isLearn){const requested=hash.split('/')[1]||'tki';learnBuild=getBuild(requested).id;learnStep=0;renderBuildList();renderBuildArticle();window.scrollTo({top:0,behavior:'instant'});}
-  document.querySelector('.learn-nav').classList.toggle('active',isLearn);
-}
-$$('[data-view]').forEach(button=>button.onclick=()=>{location.hash=button.dataset.view==='learn'?`learn/${learnBuild}`:'home';});
-$$('a[href="#home"],a[href="#modes"]').forEach(link=>link.addEventListener('click',()=>{$('#practice-home').hidden=false;$('#learn').hidden=true;}));
-$('#build-search').oninput=renderBuildList;
-$('#build-compare-rows').innerHTML=buildLibrary.map(build=>`<tr><th scope="row"><a href="#learn/${build.id}">${build.name}</a></th><td>${build.flow.filter(step=>step.kind!=='setup').map(step=>step.label).join(' → ')||'PC'}</td><td>${build.tags.at(-1)}</td></tr>`).join('');
-window.addEventListener('hashchange',syncView);syncView();
+$$('[data-view="learn"]').forEach(button=>button.onclick=()=>openBuild(activeCourseId));
+$('#build-course').onchange=e=>openBuild(e.target.value);
+$('#course-hint').onclick=()=>{courseShown=!courseShown;updateCourse();draw();canvas.focus({preventScroll:true});};
+$('#course-undo').onclick=()=>{
+  const prior=courseHistory.pop();if(!prior)return;
+  board=prior.board;queue=prior.queue;hold=prior.hold;drawn=prior.drawn;lines=prior.lines;pieces=prior.pieces;courseIndex=prior.index;
+  courseDone=false;canHold=true;over=false;paused=false;running=true;releaseInputs();spawn(prior.type);$('#board-overlay').hidden=true;updateCourse();draw();canvas.focus({preventScroll:true});
+};
+$('#course-again').onclick=()=>{reset();canvas.focus({preventScroll:true});};
+$('#course-next').onclick=()=>{const ids=Object.keys(courseInfo);openBuild(ids[(ids.indexOf(activeCourseId)+1)%ids.length]);};
+function syncBuildRoute(){if(location.hash.startsWith('#learn'))openBuild(location.hash.split('/')[1]);else if(dialog.open&&mode==='build')close();}
+window.addEventListener('hashchange',syncBuildRoute);syncBuildRoute();
