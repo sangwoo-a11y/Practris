@@ -1,6 +1,6 @@
-import {shapes,shuffledBag,collides,rotatedPiece,samePlacement,stampShape,clearRows,classifyTSpin} from './game.js?v=11';
-import {spawnPiece,enumeratePlacements} from './placements.js?v=11';
-import {seededRandom} from './lessons.js?v=11';
+import {shapes,shuffledBag,collides,rotatedPiece,samePlacement,stampShape,clearRows,classifyTSpin} from './game.js?v=12';
+import {spawnPiece,enumeratePlacements} from './placements.js?v=12';
+import {seededRandom} from './lessons.js?v=12';
 export function routeToTarget(board,step){
   if(step.moves){let p=spawnPiece(step.target.type);for(const action of step.moves){if(['cw','ccw','flip'].includes(action))p=rotatedPiece(board,p,{cw:1,ccw:-1,flip:2}[action]);else p=p&&{...p,x:p.x+({left:-1,right:1}[action]||0),y:p.y+(action==='down'?1:0),lastRotation:false};if(!p||collides(board,p))return null;}const stamped=stampShape(board,p);if(!stamped)return null;const r=clearRows(stamped);if(samePlacement(p,step.target)&&collides(board,{...p,y:p.y+1})&&r.cleared===step.clear&&(!step.spin||classifyTSpin(board,p,r.cleared)===step.spin))return {p,moves:step.moves};return null;}
   return enumeratePlacements(board,spawnPiece(step.target.type)).find(o=>samePlacement(o.p,step.target))||null;

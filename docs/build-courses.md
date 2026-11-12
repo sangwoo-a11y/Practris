@@ -50,3 +50,7 @@ bag 판단에서는 실제로 섞은 7-bag을 대상으로 현재 미노와 한 
 - 각 자료가 명시하는 도식 출처: [four.lol TKI](https://four.lol/openers/tki), [DT Cannon](https://four.lol/methods/dt-cannon), [Triple Double](https://four.lol/methods/triple-double#opening-c-spin), [Albatross](https://four.lol/openers/albatross), [PC opener](https://four.lol/perfect-clears/opener)
 
 Hard Drop와 four.lol 사이트 원문을 직접 읽었다는 의미는 아닙니다. 실제 수록 도형은 위 공개 저장소의 좌표와 엔진 검증을 기준으로 합니다.
+
+## 퍼펙트 방식 분류
+
+퍼펙트 연습에서 고른 PCO 기본형·PCO I 보류·MKO T 보류 PC도 직접 쌓기 과정으로 연결합니다. 방향/순서별 12개 과정을 추가해 전체 기본 변형은 69개입니다. 같은 자료로 따라 쌓기와 bag 판단을 지원합니다. 자세한 범위와 출처는 [perfect-methods.md](perfect-methods.md)에 있습니다.

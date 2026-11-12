@@ -1,5 +1,6 @@
-import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=11';
-import {catalog} from './lesson-data.js?v=11';
+import {isPerfectMethod,makePerfectPractice} from './perfect-methods.js?v=12';
+import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=12';
+import {catalog} from './lesson-data.js?v=12';
 export const isLesson=mode=>['stack63','perfect','tspin'].includes(mode);
 export function seededRandom(seed){let state=seed>>>0||1;return()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return(state>>>0)/4294967296;};}
 const piece=p=>({type:p.type,x:p.x,y:p.y,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns||0))});
@@ -28,9 +29,10 @@ function varyOrder(steps,random){
   }
   return result;
 }
-export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0}={}){
+export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0,method='free',stage='build'}={}){
   if(!isLesson(mode))throw new Error('Unknown practice mode');
   const random=seededRandom((seed^Math.imul(round+1,2654435761)^Math.imul(attempt+1,2246822519))>>>0);
+  if(mode==='perfect'&&isPerfectMethod(method))return makePerfectPractice(method,round,{stage,random,seed});
   const spin=kind==='mixed'?['single','double','triple'][round%3]:kind;
   const flipped=random()<.5;
   let board=emptyBoard(),steps,title;

@@ -1,7 +1,10 @@
-import {emptyBoard,bagQueue,occupiedCells} from './game.js?v=11';
-import {courseVariants as openerVariants} from './course-variants.js?v=11';
-import {midgameData} from './midgame-data.js?v=11';
-const courseVariants={...openerVariants,...midgameData};
+import {emptyBoard,bagQueue,occupiedCells} from './game.js?v=12';
+import {courseVariants as openerVariants} from './course-variants.js?v=12';
+import {midgameData} from './midgame-data.js?v=12';
+import {perfectMethodData} from './perfect-method-data.js?v=12';
+import {perfectMethods} from './perfect-methods.js?v=12';
+const methodVariants=Object.fromEntries(Object.entries(perfectMethodData).map(([id,variants])=>[perfectMethods[id].courseId,variants]));
+const courseVariants={...openerVariants,...midgameData,...methodVariants};
 export function listCourseVariants(id='tki'){return (courseVariants[id]||courseVariants.tki).map(({id,name,kind,mirrored})=>({id,name,kind,mirrored}));}
 export const courseInfo={
   tki:{name:'TKI 3',scope:'첫 bag · T-spin Double',finish:'첫 bag TSD를 완성했습니다.',description:'가로 I를 바닥으로 삼아 첫 bag에서 T-spin Double을 만드는 오프너입니다.',benefit:'적은 미노로 빠르게 첫 TSD를 만들고 후속 쌓기로 이어가기 좋습니다. I가 일찍 나올 때 유리합니다.',purpose:'가로 I 바닥과 지붕이 T의 회전 공간을 만드는 과정을 배웁니다.'},
@@ -14,6 +17,7 @@ export const courseInfo={
   mid_skim:{name:'스키밍 → TSD',category:'midgame',scope:'2줄 스키밍 · TSD 재설계',finish:'높이를 낮춘 다음 TSD를 설계했습니다.',description:'먼저 두 줄을 정리하고, 내려온 지형에 지붕을 쌓아 TSD로 연결합니다.',benefit:'공격 형태를 억지로 쌓기 전에 스키밍으로 높이를 줄이는 판단을 배웁니다.'},
   right3:{name:'6–3 · 오른쪽 3열 조합',category:'midgame',scope:'3미노 조합 → I 4줄',finish:'오른쪽 3열을 조합으로 채우고 4줄을 지웠습니다.',description:'J·O·L, J·S·L, J·Z·L 등의 대표 조합으로 3×4 공간을 채웁니다.',benefit:'미노 하나씩의 표면만 보지 않고, 남은 조합과 7열 우물의 I를 함께 준비합니다.'},
 };
+for(const method of Object.values(perfectMethods))courseInfo[method.courseId]={name:method.name,category:'perfect',scope:'정형 PC 방식 · 4줄 완성',finish:'선택한 방식으로 보드를 완전히 비웠습니다.',description:method.description,benefit:method.benefit};
 export function makeCourse(id='tki',variantId=null){
   const info=courseInfo[id]||courseInfo.tki,key=courseInfo[id]?id:'tki';
   const variant=courseVariants[key].find(v=>v.id===variantId)||courseVariants[key][0];
@@ -29,5 +33,5 @@ export function courseInstruction(course,index){
   if(course.id==='right3'&&p.type!=='I')return {title:`${p.type}를 ${location}에 연결`,why:'이 미노가 남기는 공간을 다음 조합 미노가 채울 수 있는지 보세요. 7열 우물은 비워둡니다.'};
   if(course.id==='tki'&&p.type==='I')return {title:'I를 가로로 놓아 바닥 만들기',why:'T가 들어갈 홈 아래의 높이를 정합니다. 빈 공간을 막지 않도록 표시된 바닥에 놓으세요.'};
   const role=p.m.length>p.m[0].length?'세로 벽과 계단을 만듭니다.':'바닥과 표면을 연결합니다.';
-  return {title:`${p.type}를 ${location}에 놓기`,why:course.id==='pco'?`${role} 남은 미노가 채울 빈 공간과 진입로를 남겨두세요.`:`${role} 다음 T의 홈과 통로를 덮지 않게 목표 윤곽을 확인하세요.`};
+  return {title:`${p.type}를 ${location}에 놓기`,why:course.id==='pco'||courseInfo[course.id].category==='perfect'?`${role} 남은 미노가 채울 빈 공간과 진입로를 남겨두세요.`:`${role} 다음 T의 홈과 통로를 덮지 않게 목표 윤곽을 확인하세요.`};
 }

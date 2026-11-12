@@ -1,16 +1,17 @@
-import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=11';
-import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=11';
-import {isLesson,makeLesson} from './lessons.js?v=11';
-import {guideHTML,exampleState,boardDiagram} from './guides.js?v=11';
-import {enumeratePlacements,spawnPiece} from './placements.js?v=11';
-import {makeCourse,courseInfo,courseInstruction,listCourseVariants} from './courses.js?v=11';
-import {planBagCourse} from './course-planner.js?v=11';
+import {shapes,colors,emptyBoard,shuffledBag,collides,clearRows,validBoard,rotateMatrix,trimMatrix,occupiedCells,samePlacement,stampShape,rotatedPiece,isTSpin,classifyTSpin} from './game.js?v=12';
+import {defaults,normalizeHandling,HorizontalRepeat,fallInterval,actionKey} from './handling.js?v=12';
+import {isLesson,makeLesson} from './lessons.js?v=12';
+import {guideHTML,exampleState,boardDiagram} from './guides.js?v=12';
+import {enumeratePlacements,spawnPiece} from './placements.js?v=12';
+import {makeCourse,courseInfo,courseInstruction,listCourseVariants} from './courses.js?v=12';
+import {planBagCourse} from './course-planner.js?v=12';
+import {perfectMethods,isPerfectMethod} from './perfect-methods.js?v=12';
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 // Decorative mosaics use the same palette as the playable board.
 function artGrid(el,w,h,type){const cells=Array(w*h).fill('');if(type==='hero'){const rows=['..........','..........','....TTT...','.....T....','..........','..........','..........','..........','LL....SS..','L...TSSOO.','L..TTTJOO.','ZZ..T.JJJ.','.ZZIIII...','SS.LLL.ZZ.','JSSOOLZZT.','JJJOOLTTT.'];rows.forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}else{const patterns={free:['........','........','...T....','..TTT...','........','SS..L...','.SS.L...','IIII.LL.'],skill:['........','...T....','..TTT...','........','JJ...ZZ.','.J...Z..','JJJ.JJJ.','IIIIIIII'],build:['........','...OO...','...OO...','........','L..T....','L.TTTSS.','LL..SS..','IIII....']};patterns[type].forEach((r,y)=>[...r].forEach((v,x)=>{if(v!=='.')cells[y*w+x]=v}))}el.style.setProperty('--cols',w);el.innerHTML=cells.map(t=>`<i${t?` style="--block:${colors[t]}" class="filled"`:''}></i>`).join('')}
 artGrid($('#hero-grid'),10,16,'hero');$$('[data-art]').forEach(el=>artGrid(el,8,8,el.dataset.art));
 let mode='free',board=emptyBoard(),piece,queue=[],hold=null,canHold=true,drawn=0;
-let usedLayouts=new Set(),pcHistory=[],pcPlaced=0;
+let usedLayouts=new Set(),pcHistory=[],pcPlaced=0,pcPatternStep=0,pcPatternOn=true,pcPatternShown=false;
 let activeVariantId=null,courseTimer=null,courseWorker=null,courseJob=0,coursePending=false,courseCompleted=0,courseRound=0,courseSeed=1;
 let activeCourseId='tki',course=null,courseIndex=0,courseDone=false,courseHistory=[],courseShown=true,courseMistakes=0;
 let bookResume=false,bookTopic='basics',bookExample=null,exampleIndex=0;
@@ -48,14 +49,15 @@ function updateGuide(message=''){
   if(!lesson)return;
   $('#challenge-name').textContent=lesson.title;$('#progress').textContent=adaptivePractice()?`${pcPlaced}개 배치 · ${mode==='stack63'?'4줄 클리어':'완료'} ${completed}`:`${lessonStep+1}/${lesson.steps.length} · 완료 ${completed}`;
   if(adaptivePractice()){ $('#pc-undo').disabled=pcHistory.length===0;$('#pc-hint').disabled=pcPlaced===0||over;$('#pc-mode-label').textContent=pcPlaced===0?'첫 미노를 놓으면 분석합니다.':$('#pc-auto').checked?'현재 보드 · 자동 추천':'현재 보드 · 후보 보기'; }
+  updatePCMethod();
   if(message&&message!=='좋아요. 다음 배치를 이어가세요.')toast(message);
 }
 
 function loadLesson(){
   clearPCAnalysis();
   if(mode==='stack63')lesson={id:'stack63-free',title:'6–3 STACKING',board:emptyBoard(),queue:[]};
-  else for(let attempt=0;attempt<64;attempt++){lesson=makeLesson(mode,round,{kind:$('#spin-kind').value,seed:sessionSeed,attempt});if(!usedLayouts.has(lesson.id))break;}
-  usedLayouts.add(lesson.id);drawn=0;lessonStep=0;pcHistory=[];pcPlaced=0;showHint=!adaptivePractice();board=lesson.board;queue=[...lesson.queue];
+  else for(let attempt=0;attempt<64;attempt++){lesson=makeLesson(mode,round,{kind:$('#spin-kind').value,seed:sessionSeed,attempt,method:$('#pc-method').value,stage:$('#pc-stage').value});if(!usedLayouts.has(lesson.id))break;}
+  usedLayouts.add(lesson.id);drawn=lesson.bagOffset||0;pcPatternStep=0;pcPatternOn=true;pcPatternShown=false;lessonStep=0;pcHistory=[];pcPlaced=0;showHint=!adaptivePractice();board=lesson.board;queue=[...lesson.queue];
   hold=null;canHold=true;over=false;spawn();updateGuide();draw();
 }
 function reset(){
@@ -76,7 +78,7 @@ function configure(m){
   $('#board-label').textContent=m==='build'?'BUILD LESSON':editor?'BUILD EDITOR':skill?'GUIDED PRACTICE':'FREE PLAY';
   $$('[data-switch]').forEach(b=>b.classList.toggle('active',b.dataset.switch===(skill?'tspin':m)));
   $('.course-picker').hidden=m!=='build';$('#build-coach').hidden=m!=='build';$('.practice-body').classList.toggle('learning',m==='build');if(m==='build')$('#build-course').value=activeCourseId;
-  $('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;
+  $('.perfect-picker').hidden=m!=='perfect';$('.practice-body').classList.toggle('perfect-mode',m==='perfect');$('#pc-stage').disabled=!isPerfectMethod($('#pc-method').value);$('#pc-method-tools').hidden=m!=='perfect'||!isPerfectMethod($('#pc-method').value);$('.lesson-picker').hidden=!skill;if(skill)$('#lesson').value=m;
   $('#challenge-status').hidden=!skill;$('.spin-picker').hidden=m!=='tspin';$('#editor-tools').hidden=!editor;$('#keyboard-help').hidden=editor;
   $('#pc-tools').hidden=!adaptivePractice();$('#pc-example').hidden=m!=='perfect';$('#stack-combos').hidden=m!=='stack63';$('#right-combo').hidden=m!=='stack63';$('#analysis-title').textContent=m==='stack63'?'6–3 배치 후보':'다음 배치 경우';$('.analysis-scope').textContent=m==='stack63'?'현재 보드와 홀드, 다음 한 수를 비교합니다. 7열 우물·빈칸·양쪽 높이 균형을 기준으로 추천합니다.':'보이는 NEXT 5개와 홀드로 추천을 갱신합니다. PC 경로가 확인되지 않으면 빈칸·높이 기준으로 추천합니다.';$('#next-challenge').hidden=!skill;$('#pause').hidden=editor;$('.touch-controls').hidden=editor;
   reset();if(skill)start();
@@ -87,6 +89,7 @@ $$('[data-open]').forEach(b=>b.onclick=()=>open(b.dataset.open));
 $$('[data-switch]').forEach(b=>b.onclick=()=>{configure(b.dataset.switch);canvas.focus({preventScroll:true});});
 $('.close-button').onclick=close;$('#back-home').onclick=close;
 dialog.addEventListener('cancel',e=>{e.preventDefault();close();});$('#lesson').onchange=e=>{configure(e.target.value);canvas.focus({preventScroll:true});};
+$('#pc-method').onchange=$('#pc-stage').onchange=()=>{configure('perfect');canvas.focus({preventScroll:true});};
 $('#spin-kind').onchange=()=>{configure(mode);canvas.focus({preventScroll:true});};
 function start(){if(coursePending)return;if(mode==='build'&&!piece&&!courseDone){reset();return;}if(mode==='build'&&courseDone){reset();return;}if(over)reset();running=true;paused=false;groundElapsed=0;$('#board-overlay').hidden=true;canvas.focus({preventScroll:true});draw();}
 function pause(){if(mode==='editor'||!running||over)return;paused=!paused;releaseInputs();if(paused)overlay('PAUSED','계속 ▶');else start();}
@@ -106,7 +109,7 @@ function beginCourse(next){
 function planCurrentCourse(){
   coursePending=true;courseDone=false;courseIndex=0;courseShown=false;running=false;piece=null;board=structuredClone(course.board);draw();overlay('BAG 준비 중','계산 중…');$('#start').disabled=true;
   $('#course-hint').disabled=true;$('#course-route').hidden=true;$('#course-next').hidden=true;$('#course-again').hidden=true;$('#course-scope').textContent=`${course.name} · BAG 준비`;$('#course-feedback').textContent='현재 형태가 가능한 bag 과제를 준비합니다.';$('#course-undo').disabled=true;
-  const id=++courseJob;courseWorker=new Worker(new URL('./course-worker.js?v=11',import.meta.url),{type:'module'});
+  const id=++courseJob;courseWorker=new Worker(new URL('./course-worker.js?v=12',import.meta.url),{type:'module'});
   function failed(){if(id!==courseJob)return;coursePending=false;courseWorker?.terminate();courseWorker=null;$('#start').disabled=false;overlay('다시 준비','다시 시도');$('#course-feedback').textContent='과제를 준비하지 못했습니다. 다시 시작을 눌러주세요.';}
   courseWorker.onmessage=({data})=>{if(data.id!==courseJob||mode!=='build')return;courseWorker?.terminate();courseWorker=null;$('#start').disabled=false;if(data.error){failed();return;}beginCourse(data.course);};
   courseWorker.onerror=failed;courseWorker.postMessage({id,courseId:activeCourseId,variantId:activeVariantId,seed:courseSeed,round:courseRound});
@@ -168,15 +171,29 @@ function retryStep(message){
   releaseInputs();piece={type:piece.type,m:shapes[piece.type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};
   fallElapsed=0;groundElapsed=0;updateGuide(message);draw();
 }
+function updatePCMethod(){
+  const selected=mode==='perfect'&&lesson?.methodId;$('#pc-method-tools').hidden=!selected;if(!selected)return;
+  const target=lesson.steps[pcPatternStep]?.target;
+  $('#pc-method-status').textContent=pcPatternOn?`${lesson.methodName} · ${pcPatternStep}/${lesson.steps.length} · ${lesson.variantName}${target?' · 다음 형태 '+target.type:''}`:`${lesson.methodName} 형태에서 벗어남 · 현재 보드로 PC 추천을 이어갑니다.`;
+  $('#pc-method-hint').disabled=!pcPatternOn||!target||over;$('#pc-method-hint').textContent=`방식 한 수 힌트 ${pcPatternShown?'ON':'OFF'}`;$('#pc-method-hint').setAttribute('aria-pressed',String(pcPatternShown));
+}
+function advancePCPattern(placed,result){
+  if(!lesson?.methodId||!pcPatternOn)return;
+  const step=lesson.steps[pcPatternStep];
+  if(step&&placed.type===step.target.type&&samePlacement(placed,step.target)&&result.cleared===step.clear){pcPatternStep++;return;}
+  const remaining=lesson.steps.slice(pcPatternStep),match=remaining.findIndex(s=>s.phase===remaining[0]?.phase&&s.target.type===placed.type&&samePlacement(s.target,placed)&&result.cleared===s.clear);
+  if(match>=0){const tail=remaining.filter((_,i)=>i!==match),planned=tail.length?planBagCourse({...lesson,board:result.board,steps:tail},queue,{initialHold:hold}):{steps:[]};if(planned){lesson.steps=[...lesson.steps.slice(0,pcPatternStep),remaining[match],...planned.steps];pcPatternStep++;return;}}
+  pcPatternOn=false;pcPatternShown=false;
+}
 function lock(){
   if(mode==='build'){lockCourse();return;}
   if(mode==='tspin'&&(piece.type!==lesson.steps[lessonStep].target.type||!samePlacement(piece,lesson.steps[lessonStep].target)||(lesson.steps[lessonStep].tspin&&classifyTSpin(board,piece,lesson.steps[lessonStep].clear)!==lesson.steps[lessonStep].spin))){
     retryStep(lesson.steps[lessonStep].tspin?'회전으로 진입하세요. ↓ → 회전 → ↓ → 회전 → SPACE.':'배치가 달라요. 밝은 목표 모양에 맞춰 다시 놓으세요.');return;
   }
-  const undoState=adaptivePractice()?{board:board.map(r=>[...r]),type:piece.type,queue:[...queue],hold,drawn,lines,pieces,pcPlaced,lessonStep,completed,round}:null;
+  const undoState=adaptivePractice()?{board:board.map(r=>[...r]),type:piece.type,queue:[...queue],hold,drawn,lines,pieces,pcPlaced,lessonStep,completed,round,pcPatternStep,pcPatternOn,pcPatternShown,methodSteps:lesson?.methodId?structuredClone(lesson.steps):null}:null;
 
   const placed=stampShape(board,piece);if(!placed){running=false;over=true;releaseInputs();overlay('GAME OVER','다시 시작');return;}
-  const result=clearRows(placed),spin=classifyTSpin(board,piece,result.cleared);board=result.board;lines+=result.cleared;pieces++;canHold=true;
+  const result=clearRows(placed),spin=classifyTSpin(board,piece,result.cleared);if(mode==='perfect')advancePCPattern(piece,result);board=result.board;lines+=result.cleared;pieces++;canHold=true;
   if(adaptivePractice()){
     pcHistory.push(undoState);pcPlaced++;showHint=false;
     if(mode==='perfect'&&result.cleared&&board.every(row=>row.every(v=>v===null))){completed++;round++;toast('PERFECT CLEAR');loadLesson();}
@@ -202,6 +219,7 @@ function draw(){
     }
     return;
   }
+  if(mode==='perfect'&&lesson?.methodId&&pcPatternOn&&pcPatternShown){const target=lesson.steps[pcPatternStep]?.target;if(target){for(const [x,y] of occupiedCells(target))block(x,y,target.type,.2);outline(target,'#86cfff');}}
   if(adaptivePractice()&&recommendedPlacement&&$('#pc-auto').checked){outline(recommendedPlacement,'#ffd77b');}
   if(mode==='build'&&course&&!courseDone&&courseShown){const target=course.steps[courseIndex].target;for(const [x,y] of occupiedCells(target))block(x,y,target.type,.25);outline(target,'#d5ff70');}
   if(lesson&&showHint&&!adaptivePractice()){
@@ -350,7 +368,7 @@ requestAnimationFrame(frame);
 $('#pc-hint').onclick=openAnalysis;
 $('#pc-undo').onclick=()=>{
   const prior=pcHistory.pop();if(!prior)return;
-  board=prior.board;queue=prior.queue;hold=prior.hold;drawn=prior.drawn;lines=prior.lines;pieces=prior.pieces;pcPlaced=prior.pcPlaced;lessonStep=prior.lessonStep;completed=prior.completed;round=prior.round;
+  board=prior.board;queue=prior.queue;hold=prior.hold;drawn=prior.drawn;lines=prior.lines;pieces=prior.pieces;pcPlaced=prior.pcPlaced;lessonStep=prior.lessonStep;completed=prior.completed;round=prior.round;pcPatternStep=prior.pcPatternStep;pcPatternOn=prior.pcPatternOn;pcPatternShown=prior.pcPatternShown;if(prior.methodSteps)lesson.steps=prior.methodSteps;
   piece={type:prior.type,m:shapes[prior.type].map(r=>[...r]),x:3,y:0,rot:0,lastRotation:false};
   canHold=true;over=false;running=true;paused=false;showHint=false;groundElapsed=0;releaseInputs();$('#board-overlay').hidden=true;side();updateGuide();if(pcPlaced>0&&$('#pc-auto').checked)requestPCAnalysis(false);else clearPCAnalysis();draw();canvas.focus({preventScroll:true});
 };
@@ -368,7 +386,7 @@ function setBookTopic(topic){
   if(topic==='perfect'){bookExample=mode==='perfect'&&lesson?lesson:makeLesson('perfect',0,{seed:42});exampleIndex=0;renderExample();}
 }
 function openBook(topic='basics',example=false){
-  if(topic==='current')topic=mode==='build'?(activeCourseId==='pco'?'perfect':'tspin'):isLesson(mode)?mode:mode==='editor'?'editor':'basics';
+  if(topic==='current')topic=mode==='build'?(activeCourseId==='pco'||courseInfo[activeCourseId].category==='perfect'?'perfect':'tspin'):isLesson(mode)?mode:mode==='editor'?'editor':'basics';
   bookResume=active();releaseInputs();if(bookResume)paused=true;
   setBookTopic(topic);book.showModal();book.scrollTop=0;if(!dialog.open)document.body.style.overflow='hidden';
   if(example)$('#book-example').scrollIntoView({block:'start'});
@@ -379,6 +397,8 @@ $$('[data-guide-topic]').forEach(button=>button.onclick=()=>setBookTopic(button.
 $('#book-close').onclick=closeBook;book.addEventListener('cancel',event=>{event.preventDefault();closeBook();});
 $('#example-prev').onclick=()=>{if(exampleIndex>0){exampleIndex--;renderExample();}};
 $('#example-next').onclick=()=>{if(exampleIndex<bookExample.steps.length){exampleIndex++;renderExample();}};
+$('#pc-method-hint').onclick=()=>{if(!lesson?.methodId||!pcPatternOn)return;pcPatternShown=!pcPatternShown;updatePCMethod();draw();canvas.focus({preventScroll:true});};
+$('#pc-method-learn').onclick=()=>{const method=perfectMethods[$('#pc-method').value];if(method)openBuild(method.courseId);};
 $('#pc-example').onclick=()=>openBook('perfect',true);
 
 // Every placement reanalyzes the live board and visible queue; the gallery is optional.
@@ -448,7 +468,7 @@ function requestPCAnalysis(show=false){
   clearPCAnalysis();analysisSnapshot=snapshot;analysisKey=key;analysisFilter='all';analysisPage=0;analysisNextIndex=0;analysisPlanIndex=0;
   const id=++analysisId;$('#pc-recommendation').textContent='현재 배치에서 다음 수 분석 중…';
   $('#analysis-status').textContent='현재 보드를 분석 중입니다.';$('#analysis-options').innerHTML='';$('#analysis-detail').innerHTML='';$('#analysis-filters').innerHTML='';$('#analysis-recommendation').textContent='';$('#analysis-page').textContent='';$('#analysis-prev').disabled=true;$('#analysis-next').disabled=true;
-  analysisWorker=new Worker(new URL('./placement-worker.js?v=11',import.meta.url),{type:'module'});
+  analysisWorker=new Worker(new URL('./placement-worker.js?v=12',import.meta.url),{type:'module'});
   analysisWorker.onmessage=({data})=>{
     if(data.id!==analysisId)return;
     if(data.type==='progress')$('#analysis-status').textContent=`현재 보드 분석 중 · ${data.count}개 후보 확인`;

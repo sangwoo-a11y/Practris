@@ -1,5 +1,5 @@
-import {colors,occupiedCells,emptyBoard,stampShape,clearRows,shapes,trimMatrix,rotateMatrix} from './game.js?v=11';
-import {catalog} from './lesson-data.js?v=11';
+import {colors,occupiedCells,emptyBoard,stampShape,clearRows,shapes,trimMatrix,rotateMatrix} from './game.js?v=12';
+import {catalog} from './lesson-data.js?v=12';
 export const guides={
   basics:{title:'기본 규칙',lead:'7-bag · 이동 · 회전 · 홀드',sections:[
     ['보드와 줄 지우기',['보드는 가로 10칸, 세로 20칸입니다. 한 줄을 빈칸 없이 채우면 그 줄이 사라집니다.','미노는 네 칸으로 이루어진 I·O·T·S·Z·J·L의 7종입니다. 위쪽 출현 공간이 막히면 게임 오버입니다.']],
@@ -21,6 +21,7 @@ export const guides={
     ['이 연습실에서',['빈 보드에서 무작위 7-bag으로 자유롭게 쌓습니다. 다른 위치에 놓아도 그대로 이어집니다.','첫 미노부터 매 배치 후 7열 우물 유지·내부 빈칸·양쪽 높이 균형을 평가하고 다음 한 수까지 비교해 추천합니다. 현재 보드의 추천은 금색 윤곽으로 표시됩니다.','4줄을 지워도 남은 보드와 NEXT를 유지해 계속 쌓습니다. 한 수 되돌리기로 배치를 비교할 수 있습니다. 추천은 평가 점수 기준이며 무한한 미래의 최적해는 아닙니다.']],
   ]},
   perfect:{title:'퍼펙트 클리어',lead:'정답을 보지 않고, 보드를 완전히 비우기',sections:[
+    ['퍼펙트 방식 선택',['자유 풀이 또는 PCO 기본형·PCO I 보류·MKO T 보류 PC를 선택할 수 있습니다. 여기의 방식은 사람이 연습할 정형 빌드이며 PC 후보 탐색 엔진 선택과는 다릅니다.','처음부터 설계는 빈 보드에서 10미노, 마무리는 준비된 공간에서 3미노 또는 4미노를 연습합니다. I/T 보류형의 마무리는 첫 bag의 남은 I/T를 포함합니다.','방식 한 수 힌트는 현재 단계만 보여줍니다. 다른 곳에 놓아 형태를 벗어나면 현재 보드의 자동 PC 추천을 이어가고, 되돌리면 방식 진행과 힌트도 복원합니다.','선택 방식 학습에서 같은 방식을 따라 쌓거나 다양한 bag·홀드 상황으로 설계할 수 있습니다. 정형 방식도 모든 임의의 순서에서 PC를 보장하지 않습니다.']],
     ['성공 조건',['줄을 지운 직후 보드에 블록이 하나도 남지 않으면 퍼펙트 클리어입니다.','이 과제는 두 bag에 걸친 10개 미노로 4줄을 비우는 예시가 있지만, 그 예시와 다른 배치나 더 늦은 퍼펙트 클리어도 허용합니다.']],
     ['생각하는 방법',['2줄은 20칸이므로 5미노, 4줄은 40칸이므로 10미노입니다. 칸 수가 맞아도 모양이 채워지지 않으면 성공할 수 없습니다.','작은 빈 공간을 미노 모양으로 나눠보고, 막힌 구멍이나 한 칸 폭의 깊은 틈을 만들지 않도록 살펴보세요.','NEXT 5개와 홀드로 남은 공간에 맞는 미노를 준비하세요. 모든 임의의 7-bag 순서에서 항상 PC가 가능한 것은 아닙니다.']],
     ['배치 후보와 추천 계산',['후보는 외부 DB나 예시에서 가져오지 않습니다. 현재 위치에서 좌우·아래 이동과 SRS/180° 회전으로 도달할 착지를 너비 우선 탐색(BFS)하고, 같은 네 칸은 중복 제거합니다. 홀드 대안도 따로 계산합니다.','보이는 NEXT 최대 5개와 홀드로 PC 경로를 깊이 우선 탐색(DFS)합니다. 같은 상태는 다시 계산하지 않고, 칸 수와 높이로 불가능한 가지를 줄입니다. PC 탐색은 기본 2,500노드·400ms의 제한이 있습니다.','PC 경로가 확인된 후보를 먼저 보여주고, 그중 짧은 경로를 우선합니다. 확인되지 않은 경우 내부 빈칸, 최대 높이, 전체 높이, 표면 굴곡을 벌점으로 정렬합니다. 전역 최적해나 모든 PC 해법을 보장하지 않습니다.']],
@@ -43,7 +44,7 @@ export function boardDiagram(board,target=null,fromRow=12){
   return `<svg viewBox="0 0 200 ${height}" role="img" aria-label="${target?target.type+' 미노의 이번 배치 위치':'배치 결과'}">${cells}${hint}</svg>`;
 }
 export function exampleState(lesson,index){
-  let board=emptyBoard();
+  let board=structuredClone(lesson.board||emptyBoard());
   for(let i=0;i<index;i++)board=clearRows(stampShape(board,lesson.steps[i].target)).board;
   return {board,target:index<lesson.steps.length?lesson.steps[index].target:null};
 }
