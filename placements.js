@@ -1,4 +1,5 @@
-import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=10';
+import {rightComboPlan} from './right-combos.js?v=11';
+import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=11';
 export const spawnPiece=type=>({type,m:shapes[type].map(row=>[...row]),x:3,y:0,rot:0,lastRotation:false});
 export const placementKey=p=>occupiedCells(p).map(([x,y])=>y*10+x).sort((a,b)=>a-b).join(',');
 
@@ -120,11 +121,17 @@ export function stackQuality(board){
 }
 function stackScore(q,cleared=0){return -q.wellBlocks*20000-q.holes*10000-q.height*160-q.totalHeight*6-q.balance*140-q.sideRoughness*25+(cleared===4?7000:-cleared*350);}
 export function recommendStackPlacements(snapshot,result){
+  const comboCache=new Map();
   for(const option of result.options){
     option.stackQuality=stackQuality(option.after);const immediate=stackScore(option.stackQuality,option.cleared);
     let best=null;
     for(const next of option.next){const after=clearRows(stampShape(option.after,next.p));const quality=stackQuality(after.board),score=stackScore(quality,after.cleared);if(!best||score>best.score)best={p:next.p,cleared:after.cleared,quality,score};}
-    option.followUp=best;option.score=best?immediate*.35+best.score*.65+(option.cleared===4?7000:0):immediate;
+    const afterHold=option.source==='hold'?snapshot.current.type:snapshot.hold;
+    const remaining=option.source==='hold'&&!snapshot.hold?snapshot.queue.slice(1,5):snapshot.queue.slice(0,5),available=[...remaining,...(afterHold?[afterHold]:[])];
+    const key=option.after.map(row=>row.slice(7).map(v=>v?1:0).join('')).join('')+'|'+[...available].sort().join('');
+    if(!comboCache.has(key))comboCache.set(key,rightComboPlan(option.after,available));option.rightCombo=comboCache.get(key);
+    const comboBonus=option.rightCombo.status==='available'?1200:option.rightCombo.status==='waiting'?-1400:option.rightCombo.status==='blocked'?-2600:-600;
+    option.followUp=best;option.score=(best?immediate*.35+best.score*.65+(option.cleared===4?7000:0):immediate)+comboBonus;
   }
   result.options.sort((a,b)=>b.score-a.score||(a.source===b.source?0:a.source==='current'?-1:1));
   const best=result.options[0];result.recommendation=best?{id:best.id,reason:best.cleared===4?'tetris':'stack',steps:best.followUp?2:1}:null;

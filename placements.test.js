@@ -84,3 +84,21 @@ test('6–3 prefers a real four-line clear through column 7 and re-evaluates blo
   const bad=stampShape(emptyBoard(),{type:'O',m:shapes.O,x:6,y:18});assert.equal(stackQuality(bad).wellBlocks,2);
   const changed=recommendStackPlacements({...snapshot,board:bad},analyzePlacements({...snapshot,board:bad}));assert.equal(changed.recommendation.reason,'stack');assert.notDeepEqual(changed.options[0].after,result.options[0].after);
 });
+
+import {rightComboPlan,rightComboExamples} from './right-combos.js';
+test('right-side combinations fill actual 3×4 cavities and respect available mino counts',()=>{
+  for(const example of rightComboExamples){
+    const board=stampShape(emptyBoard(),example.targets[0]),plan=rightComboPlan(board,example.types.slice(1));assert.equal(plan.status,'available');
+    const pool=[...example.types.slice(1)];let after=board;
+    for(const p of plan.placements){const index=pool.indexOf(p.type);assert.ok(index>=0);pool.splice(index,1);assert.ok(enumeratePlacements(after,spawnPiece(p.type)).some(o=>placementKey(o.p)===placementKey(p)));after=stampShape(after,p);}
+    assert.ok(after.slice(16).every(row=>row.slice(7).every(Boolean)));
+  }
+  const board=stampShape(emptyBoard(),rightComboExamples[0].targets[0]);assert.equal(rightComboPlan(board,['T','S']).status,'waiting');assert.equal(rightComboPlan(board,['O','O']).status,'waiting');
+});
+test('6–3 combination scoring derives remaining NEXT and hold after each current/hold choice',()=>{
+  const snapshot={board:emptyBoard(),current:spawnPiece('J'),hold:null,queue:['O','L','I','T','S'],canHold:true},result=recommendStackPlacements(snapshot,analyzePlacements(snapshot));
+  for(const option of result.options){const available=option.source==='hold'?[...snapshot.queue.slice(1),snapshot.current.type]:snapshot.queue;const counts=Object.fromEntries(Object.keys(shapes).map(t=>[t,available.filter(v=>v===t).length]));
+    if(option.rightCombo.status==='available')for(const type of option.rightCombo.types){assert.ok(counts[type]>0);counts[type]--;}
+  }
+  assert.ok(result.options.some(o=>o.rightCombo.status==='available'));
+});
