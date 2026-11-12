@@ -72,7 +72,7 @@ test('every design catalog uses legal 7-bags and each finishing goal actually wo
   }
   for(const mode of ['perfect','stack63'])for(const kind of ['single','double','triple'])for(let round=0;round<12;round++){
     const lesson=makeLesson(mode,round,{kind,seed:192});const sequence=lesson.steps.map(s=>s.target.type);
-    assert.deepEqual(lesson.queue.slice(0,sequence.length),sequence);
+    assert.deepEqual(lesson.exampleQueue.slice(0,sequence.length),sequence);
     for(let i=0;i<lesson.queue.length;i+=7)assert.deepEqual([...lesson.queue.slice(i,i+7)].sort(),Object.keys(shapes).sort());
     for(let i=2;i<lesson.queue.length;i++)assert.ok(!(lesson.queue[i]===lesson.queue[i-1]&&lesson.queue[i]===lesson.queue[i-2]));
   }

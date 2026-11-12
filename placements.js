@@ -1,5 +1,5 @@
-import {rightComboPlan} from './right-combos.js?v=13';
-import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=13';
+import {rightComboPlan} from './right-combos.js?v=14';
+import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=14';
 export const spawnPiece=type=>({type,m:shapes[type].map(row=>[...row]),x:3,y:0,rot:0,lastRotation:false});
 export const placementKey=p=>occupiedCells(p).map(([x,y])=>y*10+x).sort((a,b)=>a-b).join(',');
 
@@ -145,7 +145,7 @@ export function rankPerfectMethod(snapshot,result){
   const method=snapshot.method;if(!method)return result;
   const matches=[];
   for(const option of result.options){option.methodMatch=!!method.onPlan&&method.targets.some(step=>option.type===step.target.type&&placementKey(option.p)===placementKey(step.target)&&option.cleared===step.clear);option.methodPriority=option.methodMatch&&method.expected&&placementKey(option.p)===placementKey(method.expected.target)?1:0;if(option.methodMatch)matches.push(option);}
-  result.context={kind:'perfect',methodId:method.id,methodName:method.name,status:!method.onPlan?'off-plan':matches.length?'aligned':'unavailable',matched:matches.length};
+  result.context={kind:'perfect',methodId:method.id,methodName:method.name,status:method.phase==='finish'?'finish':!method.onPlan?'off-plan':matches.length?'aligned':'unavailable',matched:matches.length};
   if(matches.length){
     result.options.sort((a,b)=>Number(b.methodMatch)-Number(a.methodMatch)||Number(!!b.solution)-Number(!!a.solution)||(a.solution&&b.solution?a.solution.length-b.solution.length:0)||b.methodPriority-a.methodPriority||b.score-a.score);
     const best=result.options[0];result.recommendation={id:best.id,reason:best.solution?'method-pc':'method',steps:best.solution?.length||null};

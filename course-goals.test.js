@@ -11,5 +11,5 @@ for(const id of Object.keys(courseInfo))test(`${id}: real play goals complete af
 });
 test('wrong positions do not accidentally complete a T-spin or PC goal',()=>{
   const before=emptyBoard(),p={type:'O',m:shapes.O,x:3,y:18},result=clearRows(stampShape(before,p));
-  for(const id of ['tki','pco','mid_skim','right3'])assert.equal(advanceCourseGoal(courseGoal(makeCourse(id)),{},before,p,result).complete,false);
+  for(const id of ['tki','dt','mid_skim','cspin'])assert.equal(advanceCourseGoal(courseGoal(makeCourse(id)),{},before,p,result).complete,false);
 });

@@ -1,6 +1,6 @@
-import {isPerfectMethod,makePerfectPractice} from './perfect-methods.js?v=13';
-import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue} from './game.js?v=13';
-import {catalog} from './lesson-data.js?v=13';
+import {isPerfectMethod,makePerfectPractice} from './perfect-methods.js?v=14';
+import {emptyBoard,shapes,rotateMatrix,trimMatrix,stampShape,collides,clearRows,bagQueue,randomBags} from './game.js?v=14';
+import {catalog} from './lesson-data.js?v=14';
 export const isLesson=mode=>['stack63','perfect','tspin'].includes(mode);
 export function seededRandom(seed){let state=seed>>>0||1;return()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return(state>>>0)/4294967296;};}
 const piece=p=>({type:p.type,x:p.x,y:p.y,m:trimMatrix(rotateMatrix(shapes[p.type],p.turns||0))});
@@ -29,10 +29,10 @@ function varyOrder(steps,random){
   }
   return result;
 }
-export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0,method='free',stage='build'}={}){
+export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0,method='free',stage='build',bagRandom=Math.random,liveQueue=null}={}){
   if(!isLesson(mode))throw new Error('Unknown practice mode');
   const random=seededRandom((seed^Math.imul(round+1,2654435761)^Math.imul(attempt+1,2246822519))>>>0);
-  if(mode==='perfect'&&isPerfectMethod(method))return makePerfectPractice(method,round,{stage,random,seed});
+  if(mode==='perfect'&&isPerfectMethod(method))return makePerfectPractice(method,round,{stage,random:bagRandom,seed,liveQueue});
   const spin=kind==='mixed'?['single','double','triple'][round%3]:kind;
   const flipped=random()<.5;
   let board=emptyBoard(),steps,title;
@@ -61,7 +61,7 @@ export function makeLesson(mode,round=0,{kind='mixed',seed=1,attempt=0,method='f
     target={...target,y:target.y-raise};
     steps=[{target,clear:{single:1,double:2,triple:3}[spin],tspin:true,spin}];title=`T-SPIN ${spin.toUpperCase()}`;
   }
-  const queue=bagQueue(steps.map(s=>s.target.type),random);
+  const exampleQueue=bagQueue(steps.map(s=>s.target.type),random),queue=mode==='tspin'?exampleQueue:liveQueue?[...liveQueue]:randomBags(4,bagRandom);
   const id=JSON.stringify([board.map(row=>row.map(v=>v?'X':'.').join('')),steps.map(s=>s.target)]);
-  return {board,steps,queue,title,kind:mode==='tspin'?spin:null,id};
+  return {board,steps,queue,exampleQueue,randomBag:mode!=='tspin',title,kind:mode==='tspin'?spin:null,id};
 }

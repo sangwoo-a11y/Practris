@@ -1,6 +1,5 @@
-import {shapes,shuffledBag,collides,rotatedPiece,samePlacement,stampShape,clearRows,classifyTSpin} from './game.js?v=13';
-import {spawnPiece,enumeratePlacements} from './placements.js?v=13';
-import {seededRandom} from './lessons.js?v=13';
+import {shapes,randomBags,collides,rotatedPiece,samePlacement,stampShape,clearRows,classifyTSpin} from './game.js?v=14';
+import {spawnPiece,enumeratePlacements} from './placements.js?v=14';
 export function routeToTarget(board,step){
   if(step.moves){let p=spawnPiece(step.target.type);for(const action of step.moves){if(['cw','ccw','flip'].includes(action))p=rotatedPiece(board,p,{cw:1,ccw:-1,flip:2}[action]);else p=p&&{...p,x:p.x+({left:-1,right:1}[action]||0),y:p.y+(action==='down'?1:0),lastRotation:false};if(!p||collides(board,p))return null;}const stamped=stampShape(board,p);if(!stamped)return null;const r=clearRows(stamped);if(samePlacement(p,step.target)&&collides(board,{...p,y:p.y+1})&&r.cleared===step.clear&&(!step.spin||classifyTSpin(board,p,r.cleared)===step.spin))return {p,moves:step.moves};return null;}
   return enumeratePlacements(board,spawnPiece(step.target.type)).find(o=>samePlacement(o.p,step.target))||null;
@@ -30,18 +29,24 @@ export function planBagCourse(course,queue,{maxNodes=10000,initialHold=null}={})
   }
   const steps=visit(course.board,0,0,queue[0],1,initialHold);return steps?{...course,steps,queue:[...queue],bagPractice:true}:null;
 }
-export function designBagCourse(course,{seed=1,round=0}={}){
-  const random=seededRandom((seed^Math.imul(round+1,2654435761))>>>0);
-  for(let attempt=0;attempt<24;attempt++){
-    const queue=Array.from({length:4},()=>shuffledBag(random)).flat();
-    if(course.bagOffset===6)queue.unshift(course.steps[0].target.type);
-    const planned=planBagCourse(course,queue);if(planned)return {...planned,bagNote:'이 형태가 가능한 7-bag 과제 · 홀드로 순서 판단',bagSeed:seed,bagRound:round};
+// Draw exactly once. Failure to fit the selected build never resamples the bag.
+export function designBagCourse(course,{random=Math.random}={}){
+  const queue=randomBags(4,random),planned=planBagCourse(course,queue);
+  return {...(planned||course),queue,bagOffset:0,bagPractice:true,randomBag:true,bagPlanned:!!planned,bagNote:'무작위 7-BAG · 현재 순서로 설계'};
+}
+export function availableCourseStep(board,steps,current,queue=[],hold=null){
+  if(!steps.length)return null;const candidates=[];
+  for(let i=0;i<steps.length;i++){
+    const step=steps[i];if(step.phase!==steps[0].phase)break;
+    if(step.clear&&i!==0)break;
+    candidates.push({step,index:i});if(step.clear)break;
   }
-  // A selected feasible drill, not a claim that every random bag supports this opener.
-  let currentQueue=[...course.queue],planned=planBagCourse(course,currentQueue);
-  if(!planned)throw Error('Course has no legal bag plan');
-  const start=course.bagOffset===6?1:0;
-  for(let attempt=0;attempt<36;attempt++){const trial=[...currentQueue],bag=Math.floor(random()*Math.max(1,Math.ceil(course.steps.length/7))),offset=start+bag*7,i=offset+Math.floor(random()*6);if(i+1>=trial.length)continue;[trial[i],trial[i+1]]=[trial[i+1],trial[i]];const candidate=planBagCourse(course,trial);if(candidate){planned=candidate;currentQueue=trial;}}
-  return {...planned,bagNote:'이 형태가 가능한 7-bag 과제 · 홀드로 순서 판단',bagSeed:seed,bagRound:round};
+  const choices=[{type:current,useHold:false},{type:hold||queue[0],useHold:true}];
+  for(const choice of choices)for(const candidate of candidates){
+    if(choice.type!==candidate.step.target.type)continue;
+    const route=routeToTarget(board,{...candidate.step,moves:candidate.step.spin?candidate.step.moves:undefined});
+    if(route)return {...candidate,step:{...candidate.step,moves:route.moves},useHold:choice.useHold};
+  }
+  return null;
 }
 export function nextCourseVariant(id,variantId,variants){const index=variants.findIndex(v=>v.id===variantId);return variants[(index+1)%variants.length]?.id;}

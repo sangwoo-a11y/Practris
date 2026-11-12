@@ -53,9 +53,9 @@ test('off-plan positions are reranked from the actual board without claiming an 
   assert.notEqual(placementKey(a.options[0].p),placementKey(b.options[0].p));
 });
 
-import {makeCourse} from './courses.js';
+import {makePerfectPractice} from './perfect-methods.js';
 test('a three-move PC proof includes reachable tucks and conserves queue/hold',()=>{
-  const course=makeCourse('pco');let board=emptyBoard();for(const step of course.steps.slice(0,7))board=clearRows(stampShape(board,step.target)).board;
+  const course=makePerfectPractice('pco_hold_i');course.queue=course.exampleQueue;let board=emptyBoard();for(const step of course.steps.slice(0,7))board=clearRows(stampShape(board,step.target)).board;
   const snapshot={board,current:spawnPiece(course.queue[7]),queue:course.queue.slice(8,13),hold:null,canHold:true};
   const result=recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:10000,timeMs:2000});
   assert.equal(result.recommendation.reason,'pc');assert.equal(result.recommendation.steps,3);
@@ -108,10 +108,18 @@ import {makeLesson} from './lessons.js';
 test('initial PC candidates are generated before any piece is placed and follow the selected method',()=>{
   for(const method of ['pco_standard','pco_hold_i','mko_hold_t']){
     const lesson=makeLesson('perfect',0,{method,seed:42}),expected=lesson.steps[0],targets=lesson.steps.filter(s=>s.phase===expected.phase);
-    const snapshot={board:lesson.board,current:spawnPiece(lesson.queue[0]),queue:lesson.queue.slice(1,6),hold:null,canHold:true,method:{id:method,name:lesson.methodName,onPlan:true,expected,targets}};
+    const snapshot={board:lesson.board,current:spawnPiece(lesson.exampleQueue[0]),queue:lesson.exampleQueue.slice(1,6),hold:null,canHold:true,method:{id:method,name:lesson.methodName,onPlan:true,expected,targets}};
     const result=rankPerfectMethod(snapshot,recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:0}));
     assert.ok(result.options.length>0);assert.equal(result.context.status,'aligned');assert.equal(result.options[0].methodMatch,true);assert.match(result.recommendation.reason,/method/);
     assert.ok(targets.some(s=>placementKey(s.target)===placementKey(result.options[0].p)));
     snapshot.method.onPlan=false;const off=rankPerfectMethod(snapshot,recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:0}));assert.equal(off.context.status,'off-plan');assert.ok(off.options.every(o=>!o.methodMatch));assert.equal(off.recommendation.reason,'heuristic');
   }
+});
+
+test('whole-board 6–3 advice changes when the right-side completion mino is available',()=>{
+  const board=stampShape(emptyBoard(),{type:'J',m:[[1,0,0],[1,1,1]],x:7,y:18});
+  const rank=queue=>{const snapshot={board,current:spawnPiece('O'),queue,hold:null,canHold:false};return recommendStackPlacements(snapshot,analyzePlacements(snapshot)).options[0];};
+  const withL=rank(['L']),withoutL=rank(['T']);
+  assert.ok(occupiedCells(withL.p).every(([x])=>x>=7));assert.equal(withL.rightCombo.status,'available');assert.deepEqual(withL.rightCombo.types,['L']);
+  assert.ok(occupiedCells(withoutL.p).every(([x])=>x<6));assert.equal(withoutL.rightCombo.status,'waiting');
 });

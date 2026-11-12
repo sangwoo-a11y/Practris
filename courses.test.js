@@ -38,5 +38,9 @@ test('variants expose different geometries, PC finishes and legal bag orders',()
     assert.ok(courseInfo[id].description&&courseInfo[id].benefit);
     assert.equal(new Set(courses.map(c=>JSON.stringify(c.steps.map(s=>s.target)))).size,variants.length);
   }
-  assert.equal(total,69);assert.equal(new Set(listCourseVariants('tki').map(v=>v.kind)).size,3);assert.equal(new Set(listCourseVariants('pco').map(v=>v.kind)).size,2);
+  assert.equal(total,43);assert.equal(new Set(listCourseVariants('tki').map(v=>v.kind)).size,3);
+});
+
+test('build learning exposes no PC or isolated right-side drill',()=>{
+  for(const id of ['pco','pc_pco_standard','pc_pco_hold_i','pc_mko_hold_t','right3'])assert.throws(()=>makeCourse(id),/Unknown/);
 });

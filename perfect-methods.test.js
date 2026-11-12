@@ -2,27 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {perfectMethods,makePerfectPractice} from './perfect-methods.js';
 import {perfectMethodData} from './perfect-method-data.js';
-import {makeLesson} from './lessons.js';
-import {emptyBoard,shapes,stampShape,clearRows} from './game.js';
-import {routeToTarget,designBagCourse} from './course-planner.js';
-import {makeCourse} from './courses.js';
+import {makeLesson,seededRandom} from './lessons.js';
+import {emptyBoard,shapes,stampShape,clearRows,randomBags} from './game.js';
+import {routeToTarget} from './course-planner.js';
+import {courseInfo} from './courses.js';
 import {exampleState} from './guides.js';
-for(const [method,info] of Object.entries(perfectMethods))for(let round=0;round<perfectMethodData[method].length;round++)for(const stage of ['build','finish'])test(`${method} ${round} ${stage}: legal bags, reachable moves and actual four-line PC`,()=>{
-  const lesson=makeLesson('perfect',round,{method,stage,seed:0});assert.equal(lesson.methodId,method);assert.equal(lesson.methodStage,stage);assert.equal(lesson.variantId,perfectMethodData[method][round].id);
-  const expectedSkip=stage==='finish'?info.setupCount:0;assert.equal(lesson.bagOffset,expectedSkip);assert.equal(lesson.steps.length,10-expectedSkip);
-  if(stage==='build')assert.deepEqual(lesson.board,emptyBoard());else assert.equal(lesson.board.flat().filter(Boolean).length,4*expectedSkip);
-  const full=makeLesson('perfect',round,{method,stage:'build',seed:0});assert.deepEqual(lesson.queue,full.queue.slice(expectedSkip));
-  for(let i=0;i<full.queue.length;i+=7)assert.deepEqual(full.queue.slice(i,i+7).sort(),Object.keys(shapes).sort());
+for(const [method,info] of Object.entries(perfectMethods))for(let round=0;round<perfectMethodData[method].length;round++)for(const stage of ['build','finish'])test(`${method} ${round} ${stage}: random practice stays independent of the verified example`,()=>{
+  const lesson=makeLesson('perfect',round,{method,stage,seed:0,bagRandom:seededRandom(91)}),skip=stage==='finish'?info.setupCount:0;
+  assert.equal(lesson.methodId,method);assert.equal(lesson.variantId,perfectMethodData[method][round].id);assert.equal(lesson.bagOffset,0);assert.equal(lesson.setupRemaining,stage==='finish'?0:info.setupCount);
+  assert.deepEqual(lesson.queue,randomBags(4,seededRandom(91)));
+  if(stage==='build')assert.deepEqual(lesson.board,emptyBoard());else assert.equal(lesson.board.flat().filter(Boolean).length,4*skip);
   let board=structuredClone(lesson.board),lines=0;for(const [i,step] of lesson.steps.entries()){
-    assert.equal(lesson.queue[i],step.target.type);const path=routeToTarget(board,step);assert.ok(path);const r=clearRows(stampShape(board,path.p));assert.equal(r.cleared,step.clear);lines+=r.cleared;board=r.board;
+    assert.equal(lesson.exampleQueue[i],step.target.type);const path=routeToTarget(board,step);assert.ok(path);const r=clearRows(stampShape(board,path.p));assert.equal(r.cleared,step.clear);lines+=r.cleared;board=r.board;
   }
-  assert.equal(lines,4);assert.ok(board.flat().every(v=>!v));assert.deepEqual(exampleState(lesson,0).board,lesson.board);assert.deepEqual(exampleState(lesson,lesson.steps.length).board,emptyBoard());
+  assert.equal(lines,4);assert.deepEqual(board,emptyBoard());assert.deepEqual(exampleState(lesson,0).board,lesson.board);assert.deepEqual(exampleState(lesson,lesson.steps.length).board,emptyBoard());
 });
-test('free PC practice stays independent of the selected-method data',()=>{
-  assert.deepEqual(makeLesson('perfect',0,{seed:42}),makeLesson('perfect',0,{seed:42,method:'free'}));assert.equal(makeLesson('perfect',0,{seed:42,method:'missing'}).methodId,undefined);assert.throws(()=>makePerfectPractice('missing'),/Unknown/);
+test('free and named methods consume the same random bag source without selecting successful orders',()=>{
+  const draws=[];for(const method of ['free',...Object.keys(perfectMethods)]){
+    let calls=0;const rng=seededRandom(9),lesson=makeLesson('perfect',0,{method,bagRandom:()=>{calls++;return rng();}});assert.equal(calls,24);draws.push(lesson.queue);}
+  for(const queue of draws)assert.deepEqual(queue,draws[0]);
+  assert.throws(()=>makePerfectPractice('missing'),/Unknown/);
 });
-for(const [id,info] of Object.entries(perfectMethods))test(`${id}: full learning course supports bag/hold design as well`,()=>{
-  const planned=designBagCourse(makeCourse(info.courseId),{seed:42});let current=planned.queue[0],index=1,hold=null,board=planned.board;
-  for(const step of planned.steps){if(step.useHold){if(hold)[current,hold]=[hold,current];else{hold=current;current=planned.queue[index++];}}assert.equal(current,step.target.type);const path=routeToTarget(board,step);assert.ok(path);board=clearRows(stampShape(board,path.p)).board;current=planned.queue[index++];}
-  assert.ok(board.flat().every(v=>!v));
+test('continuing after PC preserves the actual remaining bag instead of starting a reference queue',()=>{
+  const live=randomBags(4,seededRandom(19)).slice(10),lesson=makeLesson('perfect',2,{method:'pco_hold_i',liveQueue:live,bagRandom:()=>{throw Error('must not redraw');}});
+  assert.deepEqual(lesson.queue,live);assert.notEqual(lesson.queue,live);
+});
+test('perfect methods are available to skills and absent from build learning',()=>{
+  assert.equal(Object.values(perfectMethods).length,3);assert.ok(Object.keys(courseInfo).every(id=>id!=='pco'&&!id.startsWith('pc_')&&id!=='right3'));
 });
