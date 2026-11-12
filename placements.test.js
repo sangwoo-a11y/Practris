@@ -102,3 +102,16 @@ test('6–3 combination scoring derives remaining NEXT and hold after each curre
   }
   assert.ok(result.options.some(o=>o.rightCombo.status==='available'));
 });
+
+import {rankPerfectMethod} from './placements.js';
+import {makeLesson} from './lessons.js';
+test('initial PC candidates are generated before any piece is placed and follow the selected method',()=>{
+  for(const method of ['pco_standard','pco_hold_i','mko_hold_t']){
+    const lesson=makeLesson('perfect',0,{method,seed:42}),expected=lesson.steps[0],targets=lesson.steps.filter(s=>s.phase===expected.phase);
+    const snapshot={board:lesson.board,current:spawnPiece(lesson.queue[0]),queue:lesson.queue.slice(1,6),hold:null,canHold:true,method:{id:method,name:lesson.methodName,onPlan:true,expected,targets}};
+    const result=rankPerfectMethod(snapshot,recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:0}));
+    assert.ok(result.options.length>0);assert.equal(result.context.status,'aligned');assert.equal(result.options[0].methodMatch,true);assert.match(result.recommendation.reason,/method/);
+    assert.ok(targets.some(s=>placementKey(s.target)===placementKey(result.options[0].p)));
+    snapshot.method.onPlan=false;const off=rankPerfectMethod(snapshot,recommendPlacements(snapshot,analyzePlacements(snapshot),{maxNodes:0}));assert.equal(off.context.status,'off-plan');assert.ok(off.options.every(o=>!o.methodMatch));assert.equal(off.recommendation.reason,'heuristic');
+  }
+});

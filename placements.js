@@ -1,5 +1,5 @@
-import {rightComboPlan} from './right-combos.js?v=12';
-import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=12';
+import {rightComboPlan} from './right-combos.js?v=13';
+import {shapes,collides,rotatedPiece,occupiedCells,stampShape,clearRows} from './game.js?v=13';
 export const spawnPiece=type=>({type,m:shapes[type].map(row=>[...row]),x:3,y:0,rot:0,lastRotation:false});
 export const placementKey=p=>occupiedCells(p).map(([x,y])=>y*10+x).sort((a,b)=>a-b).join(',');
 
@@ -136,5 +136,19 @@ export function recommendStackPlacements(snapshot,result){
   result.options.sort((a,b)=>b.score-a.score||(a.source===b.source?0:a.source==='current'?-1:1));
   const best=result.options[0];result.recommendation=best?{id:best.id,reason:best.cleared===4?'tetris':'stack',steps:best.followUp?2:1}:null;
   result.search={depth:2,window:Math.min(5,snapshot.queue.length),limited:true};
+  return result;
+}
+
+// Mode selection changes the recommended root placement. A method match means
+// a reachable placement in its current construction phase, not a global PC proof.
+export function rankPerfectMethod(snapshot,result){
+  const method=snapshot.method;if(!method)return result;
+  const matches=[];
+  for(const option of result.options){option.methodMatch=!!method.onPlan&&method.targets.some(step=>option.type===step.target.type&&placementKey(option.p)===placementKey(step.target)&&option.cleared===step.clear);option.methodPriority=option.methodMatch&&method.expected&&placementKey(option.p)===placementKey(method.expected.target)?1:0;if(option.methodMatch)matches.push(option);}
+  result.context={kind:'perfect',methodId:method.id,methodName:method.name,status:!method.onPlan?'off-plan':matches.length?'aligned':'unavailable',matched:matches.length};
+  if(matches.length){
+    result.options.sort((a,b)=>Number(b.methodMatch)-Number(a.methodMatch)||Number(!!b.solution)-Number(!!a.solution)||(a.solution&&b.solution?a.solution.length-b.solution.length:0)||b.methodPriority-a.methodPriority||b.score-a.score);
+    const best=result.options[0];result.recommendation={id:best.id,reason:best.solution?'method-pc':'method',steps:best.solution?.length||null};
+  }
   return result;
 }

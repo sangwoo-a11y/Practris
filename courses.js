@@ -1,8 +1,8 @@
-import {emptyBoard,bagQueue,occupiedCells} from './game.js?v=12';
-import {courseVariants as openerVariants} from './course-variants.js?v=12';
-import {midgameData} from './midgame-data.js?v=12';
-import {perfectMethodData} from './perfect-method-data.js?v=12';
-import {perfectMethods} from './perfect-methods.js?v=12';
+import {emptyBoard,bagQueue,occupiedCells} from './game.js?v=13';
+import {courseVariants as openerVariants} from './course-variants.js?v=13';
+import {midgameData} from './midgame-data.js?v=13';
+import {perfectMethodData} from './perfect-method-data.js?v=13';
+import {perfectMethods} from './perfect-methods.js?v=13';
 const methodVariants=Object.fromEntries(Object.entries(perfectMethodData).map(([id,variants])=>[perfectMethods[id].courseId,variants]));
 const courseVariants={...openerVariants,...midgameData,...methodVariants};
 export function listCourseVariants(id='tki'){return (courseVariants[id]||courseVariants.tki).map(({id,name,kind,mirrored})=>({id,name,kind,mirrored}));}

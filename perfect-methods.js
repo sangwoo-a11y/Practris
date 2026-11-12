@@ -1,5 +1,5 @@
-import {emptyBoard,bagQueue,stampShape,clearRows} from './game.js?v=12';
-import {perfectMethodData} from './perfect-method-data.js?v=12';
+import {emptyBoard,bagQueue,stampShape,clearRows} from './game.js?v=13';
+import {perfectMethodData} from './perfect-method-data.js?v=13';
 export const perfectMethods={
   pco_standard:{name:'PCO · 기본형',courseId:'pc_pco_standard',description:'첫 bag 7개로 4줄 공간을 준비하고 다음 bag의 3미노로 비웁니다.',benefit:'왼쪽 사각형과 오른쪽 계단을 만들고 중앙의 남은 공간을 읽습니다.',setupCount:7},
   pco_hold_i:{name:'PCO · I 보류',courseId:'pc_pco_hold_i',description:'I를 남겨두고 6미노로 토대를 만든 뒤 I와 다음 bag의 3미노로 마무리합니다.',benefit:'I를 언제 보류하고 어떤 순서로 남은 공간에 사용하는지 익힙니다.',setupCount:6},

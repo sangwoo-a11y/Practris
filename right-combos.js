@@ -1,4 +1,4 @@
-import {shapes,rotateMatrix,trimMatrix} from './game.js?v=12';
+import {shapes,rotateMatrix,trimMatrix} from './game.js?v=13';
 const rotations=Object.fromEntries(Object.entries(shapes).map(([type,m])=>[type,[...new Map(Array.from({length:4},(_,r)=>{const shape=trimMatrix(rotateMatrix(m,r));return [JSON.stringify(shape),shape];})).values()].filter(m=>m[0].length<=3)]));
 export const rightComboExamples=[
   {name:'J → O → L',types:['J','O','L'],targets:[{type:'J',m:[[1,0,0],[1,1,1]],x:7,y:18},{type:'O',m:[[1,1],[1,1]],x:8,y:17},{type:'L',m:[[1,1,1],[1,0,0]],x:7,y:16}]},
